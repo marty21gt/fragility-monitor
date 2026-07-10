@@ -1,0 +1,39 @@
+name: Update Fragility Data
+
+# Runs automatically at 12:00 UTC on the 1st of every month,
+# and whenever you click "Run workflow" manually.
+on:
+  schedule:
+    - cron: "0 12 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the repository files
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the tools it needs
+        run: pip install pandas numpy requests openpyxl yfinance
+
+      - name: Build data.json
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python fetch_and_build.py
+
+      - name: Publish the updated data
+        run: |
+          git config user.name "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data.json
+          git commit -m "Update fragility data $(date +%Y-%m-%d)" || echo "No changes to publish."
+          git push
