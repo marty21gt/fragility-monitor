@@ -27,21 +27,35 @@ def fred(series, retries=3):
             log(f"  retry {series}: {e}")
     log(f"  WARN: could not fetch {series}"); return pd.Series(dtype=float)
 
+def _clean_series(s):
+    """Force any price download into a clean, tz-naive, unique-index float Series."""
+    s = pd.Series(pd.to_numeric(pd.Series(s).values.ravel(), errors="coerce"),
+                  index=pd.DatetimeIndex(pd.Series(s).index))
+    if getattr(s.index, "tz", None) is not None:
+        s.index = s.index.tz_localize(None)
+    return s[~s.index.duplicated(keep="last")].sort_index().dropna()
+
 def daily_sp():
     # primary: Stooq daily S&P 500 close (no key)
     try:
-        r = requests.get("https://stooq.com/q/d/l/?s=^spx&i=d", timeout=40); r.raise_for_status()
+        hdr = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get("https://stooq.com/q/d/l/?s=%5Espx&i=d", headers=hdr, timeout=40); r.raise_for_status()
         df = pd.read_csv(io.StringIO(r.text))
-        if "Close" in df and len(df) > 500:
+        if "Close" in df.columns and len(df) > 500:
             df["Date"] = pd.to_datetime(df["Date"])
-            log(f"  daily S&P from Stooq: {len(df)} rows"); return df.set_index("Date")["Close"].sort_index()
+            log(f"  daily S&P from Stooq: {len(df)} rows")
+            return _clean_series(df.set_index("Date")["Close"])
     except Exception as e:
         log(f"  Stooq failed: {e}")
-    # fallback: yfinance
+    # fallback: yfinance (handle both Series and DataFrame return shapes)
     try:
         import yfinance as yf
-        s = yf.download("^GSPC", start="1990-01-01", progress=False)["Close"].dropna()
-        s.index = pd.to_datetime(s.index); log(f"  daily S&P from Yahoo: {len(s)} rows"); return s
+        raw = yf.download("^GSPC", start="1990-01-01", progress=False, auto_adjust=False)
+        close = raw["Close"]
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+        log(f"  daily S&P from Yahoo: {len(close)} rows")
+        return _clean_series(close)
     except Exception as e:
         log(f"  Yahoo failed: {e}"); return pd.Series(dtype=float)
 
@@ -97,34 +111,34 @@ timeline={"dates":[t.strftime("%Y-%m") for t in d.index],
  "V":[round(float(x),3) for x in d["V"]],"T":[round(float(x),3) for x in d["T"]],
  "px":[round(float(x),1) for x in d["px"]],"ma":[round(float(x),1) for x in d["ma10"]],
  "pos":[int(x) for x in d["pos"]],"bhret":[round(float(x),5) for x in d["tr"]],"stret":[round(float(x),5) for x in d["sr"]]}
-monthly_pos = pd.Series(d["pos"].values, index=d.index)
+monthly_pos = pd.Series(d["pos"].values, index=pd.DatetimeIndex(d.index))
 
 # ---------- daily price series + 200-day MA + mapped position (recent window) ----------
 priceSeries={"dates":[],"px":[],"ma":[],"pos":[]}
-if len(sp_daily)>250:
+if len(sp_daily) > 250:
     ma200 = sp_daily.rolling(200).mean()
-    recent = sp_daily.index[sp_daily.index >= (sp_daily.index[-1]-pd.DateOffset(months=18))]
-    for dte in recent:
-        m = pd.Timestamp(dte.year, dte.month, 1)
-        # position = most recent monthly decision on or before this month
-        mp = monthly_pos[monthly_pos.index<=dte]
+    cutoff = sp_daily.index[-1] - pd.DateOffset(months=18)
+    for dte in sp_daily.index[sp_daily.index >= cutoff]:
+        pxv = float(sp_daily.loc[dte]); mav = ma200.loc[dte]
+        mp = monthly_pos[monthly_pos.index <= dte]
         priceSeries["dates"].append(dte.strftime("%Y-%m-%d"))
-        priceSeries["px"].append(round(float(sp_daily[dte]),1))
-        priceSeries["ma"].append(round(float(ma200[dte]),1) if not np.isnan(ma200[dte]) else None)
+        priceSeries["px"].append(round(pxv, 1))
+        priceSeries["ma"].append(round(float(mav), 1) if pd.notna(mav) else None)
         priceSeries["pos"].append(int(mp.iloc[-1]) if len(mp) else 1)
 else:
-    # fallback: use last 72 monthly points
-    tailN=72
-    priceSeries={"dates":timeline["dates"][-tailN:],"px":timeline["px"][-tailN:],"ma":timeline["ma"][-tailN:],"pos":timeline["pos"][-tailN:]}
+    tailN = 72
+    priceSeries = {"dates":timeline["dates"][-tailN:], "px":timeline["px"][-tailN:],
+                   "ma":timeline["ma"][-tailN:], "pos":timeline["pos"][-tailN:]}
 
 # ---------- current live gauges (richer set for the snapshot) ----------
 def latest_pct(series, invert=False, mom=None):
-    s=series.dropna()
+    s=pd.Series(series).dropna()
     if len(s)<24: return None
     if mom is not None: s=(s-s.shift(mom)).dropna()
-    p=epct(s); v=p.iloc[-1] if len(p.dropna()) else None
-    if v is None or np.isnan(v): return None
-    return round(float(1-v if invert else v),2)
+    p=epct(s).dropna()
+    if not len(p): return None
+    v=float(p.iloc[-1])
+    return round(1-v if invert else v, 2)
 
 curV, curT = [], []
 def addV(label, sub, frag):
@@ -137,9 +151,10 @@ addV("Valuation (CAPE)", (f"CAPE {cape_now:.0f}" if cape_now else "Shiller CAPE"
 addV("Volatility suppression","low realized vol = complacency", latest_pct(d["rvol"], invert=True))
 if len(bogz)>8:
     yoy=(bogz.rolling(2).mean().pct_change(4)*100).dropna()
-    addV("Margin-loan leverage", f"{yoy.iloc[-1]:+.0f}% YoY", (round(float((yoy<=yoy.iloc[-1]).mean()),2) if len(yoy)>8 else None))
-if len(spread)>24:
-    sp_m=(baa-aaa).dropna()
+    addV("Margin-loan leverage", (f"{yoy.iloc[-1]:+.0f}% YoY" if len(yoy) else "FRED margin loans"),
+         (round(float((yoy<=yoy.iloc[-1]).mean()),2) if len(yoy)>8 else None))
+sp_m=(baa-aaa).dropna()
+if len(sp_m)>24:
     addV("Credit-spread compression", f"Baa\u2013Aaa {sp_m.iloc[-1]:.2f}%", latest_pct(sp_m, invert=True))
     addT("Credit spreads widening","3-month momentum", latest_pct(sp_m, mom=3))
 addV("Loose financial conditions", (f"NFCI {nfci.iloc[-1]:+.2f}" if len(nfci) else "NFCI"), latest_pct(nfci))
