@@ -1,4 +1,4 @@
- #!/usr/bin/env python3
+#!/usr/bin/env python3
 # =====================================================================
 #  Market Fragility Monitor  --  data builder
 #  Runs on a schedule (GitHub Actions). Fetches daily + monthly data,
