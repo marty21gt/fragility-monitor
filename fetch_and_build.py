@@ -7,6 +7,11 @@
 # =====================================================================
 import os, io, json, sys, datetime as dt
 import numpy as np, pandas as pd, requests
+try:
+    import lxml  # noqa: F401  (needed by pandas.read_html for the recent-CAPE extension)
+except Exception:
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "lxml"])
 
 FRED_KEY = os.environ.get("FRED_API_KEY", "").strip()
 if not FRED_KEY:
@@ -59,6 +64,18 @@ def daily_sp():
     except Exception as e:
         log(f"  Yahoo failed: {e}"); return pd.Series(dtype=float)
 
+def daily_ndx():
+    # Nasdaq-100 (index since 1985) for the QQQ variant
+    try:
+        import yfinance as yf
+        raw = yf.download("^NDX", start="1985-01-01", progress=False, auto_adjust=False)
+        close = raw["Close"]
+        if isinstance(close, pd.DataFrame): close = close.iloc[:, 0]
+        log(f"  daily Nasdaq-100 from Yahoo: {len(close)} rows")
+        return _clean_series(close)
+    except Exception as e:
+        log(f"  Nasdaq-100 fetch failed: {e}"); return pd.Series(dtype=float)
+
 # ---------- model helpers ----------
 def epct(s, m=120):
     s = s.astype(float); out = pd.Series(index=s.index, dtype=float); h=[]
@@ -76,6 +93,35 @@ log("Fetching data...")
 sp_daily = daily_sp()
 sh = pd.read_csv("https://raw.githubusercontent.com/datasets/s-and-p-500/main/data/data.csv")
 sh["Date"]=pd.to_datetime(sh["Date"]); sh=sh.set_index("Date")
+
+# ---- extend Shiller CAPE / price / dividend to the present (free mirror lags ~2 yrs) ----
+try:
+    _hdr={"User-Agent":"Mozilla/5.0"}
+    def _multpl(url,col):
+        html=requests.get(url,headers=_hdr,timeout=40).text
+        t=pd.read_html(io.StringIO(html))[0].iloc[:,:2].copy()
+        t.columns=["Date",col]; t["Date"]=pd.to_datetime(t["Date"],errors="coerce"); t=t.dropna(subset=["Date"])
+        t[col]=pd.to_numeric(t[col].astype(str).str.replace(",","",regex=False).str.replace("%","",regex=False).str.strip(), errors="coerce")
+        return t.dropna().set_index("Date")[col]
+    cape_m=_multpl("https://www.multpl.com/shiller-pe/table/by-month","v")
+    dy_m=_multpl("https://www.multpl.com/s-p-500-dividend-yield/table/by-month","v")
+    mpx=(sp_daily.resample("MS").mean() if len(sp_daily)>250 else pd.Series(dtype=float))
+    last=sh.index.max(); added=0
+    for dte in sorted(cape_m.index):
+        m0=pd.Timestamp(dte.year,dte.month,1)
+        if m0<=last: continue
+        price=mpx.get(m0,np.nan)
+        if np.isnan(price):
+            nn=sp_daily[sp_daily.index<=dte]; price=float(nn.iloc[-1]) if len(nn) else np.nan
+        if np.isnan(price): continue
+        dyv=dy_m.get(dte,np.nan)
+        sh.loc[m0,"SP500"]=price; sh.loc[m0,"PE10"]=float(cape_m[dte])
+        sh.loc[m0,"Dividend"]=price*(dyv/100) if not np.isnan(dyv) else float(sh["Dividend"].dropna().iloc[-1])
+        added+=1
+    sh=sh.sort_index()
+    log(f"  extended Shiller to {sh.index.max().strftime('%Y-%m')} (+{added} months)")
+except Exception as e:
+    log(f"  recent-extension skipped (timeline ends {sh.index.max().strftime('%Y-%m')}): {e}")
 jst = pd.read_excel("https://github.com/bank-of-england/MachineLearningCrisisPrediction/raw/master/data/JSTdatasetR3.xlsx", sheet_name="Data")
 usj = jst[jst["country"]=="USA"].set_index("year")
 baa, aaa = fred("BAA"), fred("AAA")
@@ -148,6 +194,38 @@ if len(sp_daily) > 250:
 timeline={"dates":tl_dates,"V":tl_V,"T":tl_T,"px":tl_px,"ma":tl_ma,"pos":tl_pos,"bhret":tl_bh,"stret":tl_sr}
 monthly_pos = pd.Series(d["pos"].values, index=pd.DatetimeIndex(d.index))
 
+# ---------- QQQ variant: same S&P regime signal + S&P 200-day trend, Nasdaq-100 as risk-on vehicle ----------
+timeline_qqq = None
+try:
+    ndx = daily_ndx()
+    if len(ndx) > 250:
+        Pm=pd.Series(d["pos"].values,index=d.index.to_period("M"))
+        Sm=pd.Series(d["stir"].values,index=d.index.to_period("M"))
+        Vm=pd.Series(d["V"].values,index=d.index.to_period("M"))
+        Tm=pd.Series(d["T"].values,index=d.index.to_period("M"))
+        S85=pd.Timestamp("1985-01-01")
+        ext=ndx[ndx.index>=(S85-pd.DateOffset(months=2))]
+        nret=ext.pct_change(); nma=ext.rolling(200).mean(); QDY=0.006
+        spbh=dict(zip(tl_dates,tl_bh))   # date -> S&P total return (benchmark = buy & hold S&P)
+        tq={"dates":[],"V":[],"T":[],"px":[],"ma":[],"pos":[],"bhret":[],"stret":[],"bhqqq":[]}
+        for dte in ext.index[ext.index>=S85]:
+            pm=dte.to_period("M")
+            if pm not in Pm.index: continue
+            r=nret.loc[dte]
+            if pd.isna(r): continue
+            pos_i=int(Pm.loc[pm]); sti=Sm.loc[pm]
+            qbh=float(r)+QDY/252
+            st=qbh if pos_i==1 else (float(sti)/100/252 if not pd.isna(sti) else 0.0)
+            bench=spbh.get(dte.strftime("%Y-%m-%d"),0.0)
+            mav=nma.loc[dte]
+            tq["dates"].append(dte.strftime("%Y-%m-%d"))
+            tq["V"].append(round(float(Vm.loc[pm]),3)); tq["T"].append(round(float(Tm.loc[pm]),3))
+            tq["px"].append(round(float(ext.loc[dte]),1)); tq["ma"].append(round(float(mav),1) if not pd.isna(mav) else None)
+            tq["pos"].append(pos_i); tq["bhret"].append(round(bench,5)); tq["stret"].append(round(st,5)); tq["bhqqq"].append(round(qbh,5))
+        if len(tq["dates"])>250: timeline_qqq=tq; log(f"  QQQ variant: {len(tq['dates'])} daily points from 1985")
+except Exception as e:
+    log(f"  QQQ variant skipped: {e}")
+
 # ---------- daily price series + 200-day MA + mapped position (recent window) ----------
 priceSeries={"dates":[],"px":[],"ma":[],"pos":[]}
 if len(sp_daily) > 250:
@@ -209,6 +287,7 @@ data = {
   "priceSeries": priceSeries,
   "timeline": timeline
 }
+if timeline_qqq: data["timeline_qqq"] = timeline_qqq
 with open("data.json","w",encoding="utf-8") as f:
     json.dump(data, f, separators=(",",":"), ensure_ascii=False)
 log(f"Wrote data.json  |  V-gauges {len(curV)}  T-gauges {len(curT)}  |  daily pts {len(priceSeries['dates'])}  |  timeline {len(timeline['dates'])} points (daily from 1985)")
