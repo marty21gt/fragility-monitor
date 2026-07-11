@@ -123,29 +123,30 @@ try:
 except Exception as e:
     log(f"  recent-extension via multpl skipped: {e}")
 
-# ---- robust fallback: if still not current, extend from the daily S&P price (no external source) ----
+# ---- fill any month that has a price but blank CAPE / dividend (the mirror's 2023+ gap) ----
 try:
-    capes = sh["PE10"].replace(0, np.nan).dropna()
-    last = capes.index.max()          # last month that actually has a real CAPE value
-    cur = pd.Timestamp(dt.date.today().year, dt.date.today().month, 1)
-    if last < (cur - pd.DateOffset(months=1)) and len(sp_daily) > 250:
-        mpx = sp_daily.resample("MS").mean()
-        cape_last=float(capes.iloc[-1]); px_last=float(sh.loc[last,"SP500"]); div_last=float(sh.loc[last,"Dividend"])
-        added2=0
-        for m0 in pd.date_range(last+pd.DateOffset(months=1), cur, freq="MS"):
-            price = mpx.get(m0, np.nan)
-            if np.isnan(price):
-                nn = sp_daily[sp_daily.index <= (m0+pd.offsets.MonthEnd(0))]; price = float(nn.iloc[-1]) if len(nn) else np.nan
-            if np.isnan(price): continue
-            yrs = (m0-last).days/365.25
-            sh.loc[m0,"SP500"]=price
-            sh.loc[m0,"PE10"]=cape_last*(price/px_last)/(1.06**yrs)   # ~6%/yr earnings growth assumption
-            sh.loc[m0,"Dividend"]=div_last*(price/px_last)
-            added2+=1
-        sh=sh.sort_index()
-        if added2: log(f"  extended to {sh.index.max().strftime('%Y-%m')} via price-scaled estimate (+{added2} months; recent CAPE approximate)")
+    pxc = sh["SP500"].replace(0, np.nan)
+    capec = sh["PE10"].replace(0, np.nan)
+    divc = sh["Dividend"].replace(0, np.nan)
+    realc = capec.dropna()                       # months with a real CAPE
+    dyv = (divc / pxc).dropna()                  # dividend yield history
+    dy_last = float(dyv.iloc[-1]) if len(dyv) else 0.018
+    fC = fD = 0
+    for m0 in pxc.dropna().index:
+        if pd.isna(capec.get(m0, np.nan)):
+            earlier = realc.index[realc.index <= m0]
+            if len(earlier):
+                rc = earlier.max(); yrs = (m0 - rc).days / 365.25
+                sh.loc[m0, "PE10"] = float(realc.loc[rc]) * (float(pxc[m0]) / float(pxc[rc])) / (1.07 ** yrs)
+                fC += 1
+        if pd.isna(divc.get(m0, np.nan)):
+            sh.loc[m0, "Dividend"] = float(pxc[m0]) * dy_last
+            fD += 1
+    sh = sh.sort_index()
+    if fC or fD:
+        log(f"  gap-filled recent months: {fC} CAPE + {fD} dividend (through {sh.index.max().strftime('%Y-%m')}; recent CAPE approximate)")
 except Exception as e:
-    log(f"  fallback extension skipped: {e}")
+    log(f"  gap-fill skipped: {e}")
 jst = pd.read_excel("https://github.com/bank-of-england/MachineLearningCrisisPrediction/raw/master/data/JSTdatasetR3.xlsx", sheet_name="Data")
 usj = jst[jst["country"]=="USA"].set_index("year")
 baa, aaa = fred("BAA"), fred("AAA")
@@ -284,7 +285,7 @@ def addT(label, sub, frag):
     if frag is not None: curT.append({"label":label,"sub":sub,"frag":frag})
 
 cape_now = d["cape"].dropna().iloc[-1] if d["cape"].dropna().size else None
-addV("Valuation (CAPE)", (f"CAPE {cape_now:.0f}" if cape_now else "Shiller CAPE"), latest_pct(d["cape"]))
+addV("Valuation (CAPE)", (f"CAPE ~{cape_now:.0f} (est.)" if cape_now else "Shiller CAPE"), latest_pct(d["cape"]))
 addV("Volatility suppression","low realized vol = complacency", latest_pct(d["rvol"], invert=True))
 if len(bogz)>8:
     yoy=(bogz.rolling(2).mean().pct_change(4)*100).dropna()
