@@ -50,7 +50,7 @@ def daily_sp():
     # fallback: yfinance (handle both Series and DataFrame return shapes)
     try:
         import yfinance as yf
-        raw = yf.download("^GSPC", start="1990-01-01", progress=False, auto_adjust=False)
+        raw = yf.download("^GSPC", start="1983-01-01", progress=False, auto_adjust=False)
         close = raw["Close"]
         if isinstance(close, pd.DataFrame):
             close = close.iloc[:, 0]
@@ -107,10 +107,45 @@ for i in range(len(d)):
     else:
         if i>=1 and Ts[i]<.55 and Ts[i-1]<.55 and px[i]>ma[i]: state="in"
 d["pos"]=pos; d["sr"]=np.where(np.array(pos)==1, d["tr"], d["stir"]/100/12)
-timeline={"dates":[t.strftime("%Y-%m") for t in d.index],
- "V":[round(float(x),3) for x in d["V"]],"T":[round(float(x),3) for x in d["T"]],
- "px":[round(float(x),1) for x in d["px"]],"ma":[round(float(x),1) for x in d["ma10"]],
- "pos":[int(x) for x in d["pos"]],"bhret":[round(float(x),5) for x in d["tr"]],"stret":[round(float(x),5) for x in d["sr"]]}
+
+# ---------- timeline: monthly deep history + DAILY from 1985 (true fast-crash depth) ----------
+SPLICE = pd.Timestamp("1985-01-01")
+dm = d[d.index < SPLICE]
+tl_dates=[t.strftime("%Y-%m") for t in dm.index]
+tl_V=[round(float(x),3) for x in dm["V"]]; tl_T=[round(float(x),3) for x in dm["T"]]
+tl_px=[round(float(x),1) for x in dm["px"]]; tl_ma=[round(float(x),1) for x in dm["ma10"]]
+tl_pos=[int(x) for x in dm["pos"]]; tl_bh=[round(float(x),5) for x in dm["tr"]]; tl_sr=[round(float(x),5) for x in dm["sr"]]
+def _num(x, d3):  # safe scalar
+    try:
+        f=float(x); return None if np.isnan(f) else f
+    except Exception: return None
+if len(sp_daily) > 250:
+    dend = d.index[-1]
+    dd = sp_daily[(sp_daily.index>=SPLICE)&(sp_daily.index<=dend)]
+    ma200 = sp_daily.rolling(200).mean()
+    Vm=pd.Series(d["V"].values,index=d.index.to_period("M"))
+    Tm=pd.Series(d["T"].values,index=d.index.to_period("M"))
+    Pm=pd.Series(d["pos"].values,index=d.index.to_period("M"))
+    Sm=pd.Series(d["stir"].values,index=d.index.to_period("M"))
+    DY=pd.Series((sh["Dividend"]/sh["SP500"]).values,index=sh.index.to_period("M"))
+    prev=None
+    for dte,pxv in dd.items():
+        per=dte.to_period("M")
+        vv=_num(Vm.get(per),3); tv=_num(Tm.get(per),3); pv=_num(Pm.get(per),0)
+        pv = tl_pos[-1] if pv is None else int(pv)
+        divy=_num(DY.get(per),6) or 0.0
+        stira=_num(Sm.get(per),4); stira=4.0 if stira is None else stira
+        bh = 0.0 if prev is None else (pxv/prev-1)+divy/252.0
+        sr = bh if pv==1 else stira/100/252
+        mav=_num(ma200.get(dte),1)
+        tl_dates.append(dte.strftime("%Y-%m-%d"))
+        tl_V.append(round(vv,3) if vv is not None else tl_V[-1])
+        tl_T.append(round(tv,3) if tv is not None else tl_T[-1])
+        tl_px.append(round(float(pxv),1))
+        tl_ma.append(round(mav,1) if mav is not None else None)
+        tl_pos.append(pv); tl_bh.append(round(bh,5)); tl_sr.append(round(sr,5))
+        prev=pxv
+timeline={"dates":tl_dates,"V":tl_V,"T":tl_T,"px":tl_px,"ma":tl_ma,"pos":tl_pos,"bhret":tl_bh,"stret":tl_sr}
 monthly_pos = pd.Series(d["pos"].values, index=pd.DatetimeIndex(d.index))
 
 # ---------- daily price series + 200-day MA + mapped position (recent window) ----------
@@ -176,4 +211,4 @@ data = {
 }
 with open("data.json","w",encoding="utf-8") as f:
     json.dump(data, f, separators=(",",":"), ensure_ascii=False)
-log(f"Wrote data.json  |  V-gauges {len(curV)}  T-gauges {len(curT)}  |  daily pts {len(priceSeries['dates'])}  |  timeline {len(timeline['dates'])} months")
+log(f"Wrote data.json  |  V-gauges {len(curV)}  T-gauges {len(curT)}  |  daily pts {len(priceSeries['dates'])}  |  timeline {len(timeline['dates'])} points (daily from 1985)")
