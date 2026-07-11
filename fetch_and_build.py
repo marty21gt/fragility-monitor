@@ -170,14 +170,22 @@ volup=d["rvol"]/d["rvol"].rolling(12).min()-1; mom3=d["px"].pct_change(3)
 d["V"]=pd.DataFrame({"a":capef,"b":volsup,"c":levf,"d":comp}).apply(lambda r:blend(list(r.values)),axis=1)
 d["T"]=pd.DataFrame({"a":epct(volup),"b":epct(-mom3),"c":sm}).apply(lambda r:blend(list(r.values)),axis=1)
 d=d.dropna(subset=["V","T","tr","ma10"])
-pos=[]; state="in"; Ts,Vs,px,ma=d["T"].values,d["V"].values,d["px"].values,d["ma10"].values
-for i in range(len(d)):
-    pos.append(1 if state=="in" else 0)
-    if state=="in":
-        if Vs[i]>=.62 and Ts[i]>=.55 and px[i]<ma[i]: state="out"
-    else:
-        if i>=1 and Ts[i]<.55 and Ts[i-1]<.55 and px[i]>ma[i]: state="in"
-d["pos"]=pos; d["sr"]=np.where(np.array(pos)==1, d["tr"], d["stir"]/100/12)
+Ts,Vs,px,ma=d["T"].values,d["V"].values,d["px"].values,d["ma10"].values
+def make_pos(mode):
+    pos=[]; state="in"
+    for i in range(len(d)):
+        pos.append(1 if state=="in" else 0)
+        if state=="in":
+            if Vs[i]>=.62 and Ts[i]>=.55 and px[i]<ma[i]: state="out"
+        else:
+            if mode=="v1":
+                if px[i]>ma[i]: state="in"                       # faster: re-enter once price reclaims the 200-day MA
+            else:
+                if i>=1 and Ts[i]<.55 and Ts[i-1]<.55 and px[i]>ma[i]: state="in"
+    return pos
+d["pos"]=make_pos("base"); d["pos_v1"]=make_pos("v1")
+d["sr"]=np.where(np.array(d["pos"])==1, d["tr"], d["stir"]/100/12)
+d["sr_v1"]=np.where(np.array(d["pos_v1"])==1, d["tr"], d["stir"]/100/12)
 
 # ---------- timeline: monthly deep history + DAILY from 1985 (true fast-crash depth) ----------
 SPLICE = pd.Timestamp("1985-01-01")
@@ -186,6 +194,7 @@ tl_dates=[t.strftime("%Y-%m") for t in dm.index]
 tl_V=[round(float(x),3) for x in dm["V"]]; tl_T=[round(float(x),3) for x in dm["T"]]
 tl_px=[round(float(x),1) for x in dm["px"]]; tl_ma=[round(float(x),1) for x in dm["ma10"]]
 tl_pos=[int(x) for x in dm["pos"]]; tl_bh=[round(float(x),5) for x in dm["tr"]]; tl_sr=[round(float(x),5) for x in dm["sr"]]
+tl_pos_v1=[int(x) for x in dm["pos_v1"]]; tl_sr_v1=[round(float(x),5) for x in dm["sr_v1"]]
 def _num(x, d3):  # safe scalar
     try:
         f=float(x); return None if np.isnan(f) else f
@@ -197,17 +206,20 @@ if len(sp_daily) > 250:
     Vm=pd.Series(d["V"].values,index=d.index.to_period("M"))
     Tm=pd.Series(d["T"].values,index=d.index.to_period("M"))
     Pm=pd.Series(d["pos"].values,index=d.index.to_period("M"))
+    Pm1=pd.Series(d["pos_v1"].values,index=d.index.to_period("M"))
     Sm=pd.Series(d["stir"].values,index=d.index.to_period("M"))
     DY=pd.Series((sh["Dividend"]/sh["SP500"]).values,index=sh.index.to_period("M"))
     prev=None
     for dte,pxv in dd.items():
         per=dte.to_period("M")
-        vv=_num(Vm.get(per),3); tv=_num(Tm.get(per),3); pv=_num(Pm.get(per),0)
+        vv=_num(Vm.get(per),3); tv=_num(Tm.get(per),3); pv=_num(Pm.get(per),0); pv1=_num(Pm1.get(per),0)
         pv = tl_pos[-1] if pv is None else int(pv)
+        pv1 = tl_pos_v1[-1] if pv1 is None else int(pv1)
         divy=_num(DY.get(per),6) or 0.0
         stira=_num(Sm.get(per),4); stira=4.0 if stira is None else stira
         bh = 0.0 if prev is None else (pxv/prev-1)+divy/252.0
         sr = bh if pv==1 else stira/100/252
+        sr1 = bh if pv1==1 else stira/100/252
         mav=_num(ma200.get(dte),1)
         tl_dates.append(dte.strftime("%Y-%m-%d"))
         tl_V.append(round(vv,3) if vv is not None else tl_V[-1])
@@ -215,16 +227,19 @@ if len(sp_daily) > 250:
         tl_px.append(round(float(pxv),1))
         tl_ma.append(round(mav,1) if mav is not None else None)
         tl_pos.append(pv); tl_bh.append(round(bh,5)); tl_sr.append(round(sr,5))
+        tl_pos_v1.append(pv1); tl_sr_v1.append(round(sr1,5))
         prev=pxv
 timeline={"dates":tl_dates,"V":tl_V,"T":tl_T,"px":tl_px,"ma":tl_ma,"pos":tl_pos,"bhret":tl_bh,"stret":tl_sr}
+timeline_v1={"pos":tl_pos_v1,"stret":tl_sr_v1}
 monthly_pos = pd.Series(d["pos"].values, index=pd.DatetimeIndex(d.index))
 
 # ---------- QQQ variant: same S&P regime signal + S&P 200-day trend, Nasdaq-100 as risk-on vehicle ----------
-timeline_qqq = None
+timeline_qqq = None; timeline_qqq_v1 = None
 try:
     ndx = daily_ndx()
     if len(ndx) > 250:
         Pm=pd.Series(d["pos"].values,index=d.index.to_period("M"))
+        Pm1=pd.Series(d["pos_v1"].values,index=d.index.to_period("M"))
         Sm=pd.Series(d["stir"].values,index=d.index.to_period("M"))
         Vm=pd.Series(d["V"].values,index=d.index.to_period("M"))
         Tm=pd.Series(d["T"].values,index=d.index.to_period("M"))
@@ -233,21 +248,27 @@ try:
         nret=ext.pct_change(); nma=ext.rolling(200).mean(); QDY=0.006
         spbh=dict(zip(tl_dates,tl_bh))   # date -> S&P total return (benchmark = buy & hold S&P)
         tq={"dates":[],"V":[],"T":[],"px":[],"ma":[],"pos":[],"bhret":[],"stret":[],"bhqqq":[]}
+        qpos1=[]; qsr1=[]
         for dte in ext.index[ext.index>=S85]:
             pm=dte.to_period("M")
             if pm not in Pm.index: continue
             r=nret.loc[dte]
             if pd.isna(r): continue
-            pos_i=int(Pm.loc[pm]); sti=Sm.loc[pm]
+            pos_i=int(Pm.loc[pm]); pos1_i=int(Pm1.loc[pm]); sti=Sm.loc[pm]
+            cash=(float(sti)/100/252 if not pd.isna(sti) else 0.0)
             qbh=float(r)+QDY/252
-            st=qbh if pos_i==1 else (float(sti)/100/252 if not pd.isna(sti) else 0.0)
+            st=qbh if pos_i==1 else cash
+            st1=qbh if pos1_i==1 else cash
             bench=spbh.get(dte.strftime("%Y-%m-%d"),0.0)
             mav=nma.loc[dte]
             tq["dates"].append(dte.strftime("%Y-%m-%d"))
             tq["V"].append(round(float(Vm.loc[pm]),3)); tq["T"].append(round(float(Tm.loc[pm]),3))
             tq["px"].append(round(float(ext.loc[dte]),1)); tq["ma"].append(round(float(mav),1) if not pd.isna(mav) else None)
             tq["pos"].append(pos_i); tq["bhret"].append(round(bench,5)); tq["stret"].append(round(st,5)); tq["bhqqq"].append(round(qbh,5))
-        if len(tq["dates"])>250: timeline_qqq=tq; log(f"  QQQ variant: {len(tq['dates'])} daily points from 1985")
+            qpos1.append(pos1_i); qsr1.append(round(st1,5))
+        if len(tq["dates"])>250:
+            timeline_qqq=tq; timeline_qqq_v1={"pos":qpos1,"stret":qsr1}
+            log(f"  QQQ variant: {len(tq['dates'])} daily points from 1985")
 except Exception as e:
     log(f"  QQQ variant skipped: {e}")
 
@@ -313,6 +334,8 @@ data = {
   "timeline": timeline
 }
 if timeline_qqq: data["timeline_qqq"] = timeline_qqq
+data["timeline_v1"] = timeline_v1
+if timeline_qqq_v1: data["timeline_qqq_v1"] = timeline_qqq_v1
 with open("data.json","w",encoding="utf-8") as f:
     json.dump(data, f, separators=(",",":"), ensure_ascii=False)
 log(f"Wrote data.json  |  V-gauges {len(curV)}  T-gauges {len(curT)}  |  daily pts {len(priceSeries['dates'])}  |  timeline {len(timeline['dates'])} points (daily from 1985)")
