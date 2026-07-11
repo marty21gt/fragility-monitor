@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 # =====================================================================
 #  Market Fragility Monitor  --  data builder
 #  Runs on a schedule (GitHub Actions). Fetches daily + monthly data,
@@ -121,7 +121,31 @@ try:
     sh=sh.sort_index()
     log(f"  extended Shiller to {sh.index.max().strftime('%Y-%m')} (+{added} months)")
 except Exception as e:
-    log(f"  recent-extension skipped (timeline ends {sh.index.max().strftime('%Y-%m')}): {e}")
+    log(f"  recent-extension via multpl skipped: {e}")
+
+# ---- robust fallback: if still not current, extend from the daily S&P price (no external source) ----
+try:
+    capes = sh["PE10"].replace(0, np.nan).dropna()
+    last = capes.index.max()          # last month that actually has a real CAPE value
+    cur = pd.Timestamp(dt.date.today().year, dt.date.today().month, 1)
+    if last < (cur - pd.DateOffset(months=1)) and len(sp_daily) > 250:
+        mpx = sp_daily.resample("MS").mean()
+        cape_last=float(capes.iloc[-1]); px_last=float(sh.loc[last,"SP500"]); div_last=float(sh.loc[last,"Dividend"])
+        added2=0
+        for m0 in pd.date_range(last+pd.DateOffset(months=1), cur, freq="MS"):
+            price = mpx.get(m0, np.nan)
+            if np.isnan(price):
+                nn = sp_daily[sp_daily.index <= (m0+pd.offsets.MonthEnd(0))]; price = float(nn.iloc[-1]) if len(nn) else np.nan
+            if np.isnan(price): continue
+            yrs = (m0-last).days/365.25
+            sh.loc[m0,"SP500"]=price
+            sh.loc[m0,"PE10"]=cape_last*(price/px_last)/(1.06**yrs)   # ~6%/yr earnings growth assumption
+            sh.loc[m0,"Dividend"]=div_last*(price/px_last)
+            added2+=1
+        sh=sh.sort_index()
+        if added2: log(f"  extended to {sh.index.max().strftime('%Y-%m')} via price-scaled estimate (+{added2} months; recent CAPE approximate)")
+except Exception as e:
+    log(f"  fallback extension skipped: {e}")
 jst = pd.read_excel("https://github.com/bank-of-england/MachineLearningCrisisPrediction/raw/master/data/JSTdatasetR3.xlsx", sheet_name="Data")
 usj = jst[jst["country"]=="USA"].set_index("year")
 baa, aaa = fred("BAA"), fred("AAA")
