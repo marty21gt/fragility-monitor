@@ -246,9 +246,20 @@ try:
         S85=pd.Timestamp("1985-01-01")
         ext=ndx[ndx.index>=(S85-pd.DateOffset(months=2))]
         nret=ext.pct_change(); nma=ext.rolling(200).mean(); QDY=0.006
-        spbh=dict(zip(tl_dates,tl_bh))   # date -> S&P total return (benchmark = buy & hold S&P)
+        # S&P benchmark aligned by calendar: accumulate all S&P daily returns that fall
+        # between consecutive Nasdaq dates, so no S&P return is silently dropped.
+        sp_ret = pd.Series(tl_bh, index=pd.to_datetime(tl_dates))
+        sp_ret = sp_ret[~sp_ret.index.duplicated(keep="last")].sort_index()
+        sp_cum = (1.0 + sp_ret).cumprod()          # S&P wealth index on its own dates
+        def sp_bench(prev_dt, dte):
+            """compounded S&P return over (prev_dt, dte]"""
+            if prev_dt is None: return 0.0
+            a = sp_cum[sp_cum.index <= prev_dt]
+            b = sp_cum[sp_cum.index <= dte]
+            if not len(a) or not len(b): return 0.0
+            return float(b.iloc[-1]/a.iloc[-1] - 1.0)
         tq={"dates":[],"V":[],"T":[],"px":[],"ma":[],"pos":[],"bhret":[],"stret":[],"bhqqq":[]}
-        qpos1=[]; qsr1=[]
+        qpos1=[]; qsr1=[]; prev_q=None
         for dte in ext.index[ext.index>=S85]:
             pm=dte.to_period("M")
             if pm not in Pm.index: continue
@@ -259,7 +270,7 @@ try:
             qbh=float(r)+QDY/252
             st=qbh if pos_i==1 else cash
             st1=qbh if pos1_i==1 else cash
-            bench=spbh.get(dte.strftime("%Y-%m-%d"),0.0)
+            bench=sp_bench(prev_q, dte); prev_q=dte
             mav=nma.loc[dte]
             tq["dates"].append(dte.strftime("%Y-%m-%d"))
             tq["V"].append(round(float(Vm.loc[pm]),3)); tq["T"].append(round(float(Tm.loc[pm]),3))
