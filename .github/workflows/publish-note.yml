@@ -1,0 +1,51 @@
+name: Publish Approved Note
+
+# Fires whenever you commit a change to commentary.txt (i.e. you approve a note).
+# Rebuilds data.json so the new note goes live immediately, instead of waiting
+# for the next monthly data refresh.
+on:
+  push:
+    paths:
+      - "commentary.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-fragility
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the repository files
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the tools it needs
+        run: pip install pandas numpy requests openpyxl yfinance lxml
+
+      - name: Rebuild data.json with the approved note
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python fetch_and_build.py
+
+      - name: Archive the approved note (compliance record)
+        run: |
+          mkdir -p commentary_archive
+          cp commentary.txt "commentary_archive/$(date +%Y-%m)-APPROVED.txt"
+
+      - name: Publish
+        run: |
+          git config user.name "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git pull --rebase --autostash || true
+          git add data.json commentary_archive/
+          git commit -m "Publish approved note $(date +%Y-%m-%d)" || echo "Nothing to publish."
+          git push
