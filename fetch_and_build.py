@@ -66,15 +66,23 @@ def daily_sp():
 
 def daily_ndx():
     # Nasdaq-100 (index since 1985) for the QQQ variant
-    try:
-        import yfinance as yf
-        raw = yf.download("^NDX", start="1985-01-01", progress=False, auto_adjust=False)
-        close = raw["Close"]
-        if isinstance(close, pd.DataFrame): close = close.iloc[:, 0]
-        log(f"  daily Nasdaq-100 from Yahoo: {len(close)} rows")
-        return _clean_series(close)
-    except Exception as e:
-        log(f"  Nasdaq-100 fetch failed: {e}"); return pd.Series(dtype=float)
+    import time as _t
+    for attempt in range(3):
+        try:
+            import yfinance as yf
+            raw = yf.download("^NDX", start="1985-01-01", progress=False, auto_adjust=False)
+            close = raw["Close"]
+            if isinstance(close, pd.DataFrame): close = close.iloc[:, 0]
+            s = _clean_series(close)
+            if len(s) > 250:
+                log(f"  daily Nasdaq-100 from Yahoo: {len(s)} rows")
+                return s
+            log(f"  Nasdaq-100 attempt {attempt+1}: only {len(s)} rows, retrying...")
+        except Exception as e:
+            log(f"  Nasdaq-100 attempt {attempt+1} failed: {e}")
+        _t.sleep(3)
+    log("  WARN: Nasdaq-100 unavailable -- QQQ toggles will be hidden this run")
+    return pd.Series(dtype=float)
 
 # ---------- model helpers ----------
 def epct(s, m=120):
@@ -281,7 +289,9 @@ try:
             timeline_qqq=tq; timeline_qqq_v1={"pos":qpos1,"stret":qsr1}
             log(f"  QQQ variant: {len(tq['dates'])} daily points from 1985")
 except Exception as e:
-    log(f"  QQQ variant skipped: {e}")
+    import traceback
+    log(f"  QQQ variant FAILED: {type(e).__name__}: {e}")
+    log("  " + traceback.format_exc().replace("\n", "\n  "))
 
 # ---------- daily price series + 200-day MA + mapped position (recent window) ----------
 priceSeries={"dates":[],"px":[],"ma":[],"pos":[]}
