@@ -12,6 +12,11 @@ try:
 except Exception:
     import subprocess
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", "lxml"])
+try:
+    import xlrd  # noqa: F401  (needed by pandas.read_excel for Shiller's legacy .xls)
+except Exception:
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "xlrd>=2.0.1"])
 
 FRED_KEY = os.environ.get("FRED_API_KEY", "").strip()
 if not FRED_KEY:
@@ -114,7 +119,7 @@ shiller_ok = False
 for _u in SHILLER_URLS:
     try:
         raw = requests.get(_u, headers={"User-Agent":"Mozilla/5.0"}, timeout=60).content
-        xl = pd.read_excel(io.BytesIO(raw), sheet_name="Data", header=None)
+        xl = pd.read_excel(io.BytesIO(raw), sheet_name="Data", header=None, engine="xlrd")
         # find the header row (the one whose first cell is "Date")
         hdr = next(i for i in range(15)
                    if str(xl.iloc[i,0]).strip().lower().startswith("date"))
@@ -220,34 +225,49 @@ nfci = fred("NFCI")                   # financial conditions
 # ---------- monthly panel + credit-momentum model (the timeline) ----------
 d = pd.DataFrame(index=sh.index)
 d["px"]=sh["SP500"]; d["div"]=sh["Dividend"].replace(0,np.nan); d["cape"]=sh["PE10"].replace(0,np.nan); d["yr"]=d.index.year
-cg = usj["tloans"]/usj["gdp"]            # JST credit-to-GDP (ratio), ends 2016
+jst_cg = usj["tloans"]/usj["gdp"]        # JST BANK LOANS / GDP (annual, 1870-2016)
 
-# ---- extend the leverage gauge past 2016 with the BIS series from FRED ----
-# JST stops in 2016, which silently dropped the leverage gauge out of the model.
-# QUSPAM770A is the BIS "credit to private non-financial sector, % of GDP" -- the same
-# concept, still updating. Splice it on, offset-matched at the overlap so the level is
-# continuous. (The gauge uses a 5-yr change, so a constant offset is largely harmless,
-# but matching keeps the transition window clean.)
+# ---- Leverage gauge: BIS total credit as the SPINE, JST back-spliced for the early era ----
+# JST "tloans" is bank loans only. BIS QUSPAM770A is TOTAL credit to the private
+# non-financial sector (loans + debt securities) -- the right concept for a modern
+# leverage gauge, since a large share of corporate leverage is now bond-financed, which
+# JST cannot see. BIS is also quarterly and still updating.
+#
+# So: use BIS wherever it exists (1947+), and extend BACKWARD with JST's proportional
+# shape for the pre-1947 tail. This puts every crisis that matters (1973, 1987, 2000,
+# 2008, 2020, 2022) on one consistent unspliced series, and moves the seam to 1947 --
+# far from any live decision, and to the era where "bank loans ~= credit" is most nearly
+# true, so the splice assumption is at its strongest.
+cg = jst_cg.copy()                        # fallback: JST-only (previous behavior)
+lev_note = "JST bank-loans only (BIS unavailable)"
 try:
-    bis = fred("QUSPAM770A")                      # quarterly, percent of GDP
+    bis = fred("QUSPAM770A")              # quarterly, % of GDP, total private credit
     if len(bis) > 20:
-        bis_a = (bis/100.0).groupby(bis.index.year).mean()        # annual ratio
-        ov = [y for y in cg.dropna().index if y in bis_a.index and y >= 2005]
-        if len(ov) >= 3:
-            offset = float(np.mean([cg[y]-bis_a[y] for y in ov]))
-            last_jst = int(cg.dropna().index.max()); added = 0
-            for y in sorted(bis_a.index):
-                if y > last_jst:
-                    cg.loc[y] = float(bis_a[y]) + offset; added += 1
-            cg = cg.sort_index()
-            log(f"  leverage gauge extended past {last_jst} with BIS credit/GDP "
-                f"(+{added} yrs, offset {offset:+.3f}) -> now current")
+        bis_a = (bis/100.0).groupby(bis.index.year).mean()     # annual ratio
+        b0 = int(bis_a.index.min())                            # first BIS year (~1947)
+        combined = {}
+        # BIS is the spine wherever it exists
+        for y in bis_a.index:
+            combined[int(y)] = float(bis_a[y])
+        # back-splice JST proportionally for years before BIS starts
+        if b0 in jst_cg.index and not pd.isna(jst_cg[b0]):
+            anchor_b, anchor_j = float(bis_a[b0]), float(jst_cg[b0])
+            back = 0
+            for y in sorted(jst_cg.dropna().index):
+                if int(y) < b0:
+                    combined[int(y)] = anchor_b * (float(jst_cg[y]) / anchor_j)
+                    back += 1
+            cg = pd.Series(combined).sort_index()
+            lev_note = (f"BIS total credit {b0}-{int(cg.index.max())} (spine) + "
+                        f"JST back-splice for {back} pre-{b0} yrs")
         else:
-            log("  WARN: no BIS/JST overlap -- leverage gauge still ends 2016")
+            cg = pd.Series(combined).sort_index()
+            lev_note = f"BIS total credit {b0}-{int(cg.index.max())} (no early splice)"
+        log(f"  leverage gauge: {lev_note}")
     else:
-        log("  WARN: BIS credit/GDP unavailable -- leverage gauge still ends 2016")
+        log(f"  WARN: BIS credit/GDP unavailable -- leverage gauge = {lev_note}")
 except Exception as e:
-    log(f"  WARN: leverage extension failed ({e}) -- gauge still ends 2016")
+    log(f"  WARN: BIS fetch failed ({e}) -- leverage gauge = {lev_note}")
 
 d["cg5"]=d["yr"].map(cg-cg.shift(5)); d["stir"]=d["yr"].map(usj["stir"])
 for y,v in {2017:.93,2018:1.94,2019:2.11,2020:.37,2021:.04,2022:2.02,2023:5.14,2024:4.98,2025:4.30,2026:4.20}.items():
