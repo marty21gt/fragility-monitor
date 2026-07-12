@@ -292,8 +292,29 @@ try:
             tq["pos"].append(pos_i); tq["bhret"].append(round(bench,5)); tq["stret"].append(round(st,5)); tq["bhqqq"].append(round(qbh,5))
             qpos1.append(pos1_i); qsr1.append(round(st1,5))
         if len(tq["dates"])>250:
+            # first bar of the series carries no return (it defines the 100% baseline)
+            tq["bhret"][0]=0.0; tq["stret"][0]=0.0; tq["bhqqq"][0]=0.0; qsr1[0]=0.0
             timeline_qqq=tq; timeline_qqq_v1={"pos":qpos1,"stret":qsr1}
             log(f"  QQQ variant: {len(tq['dates'])} daily points from 1985")
+            # --- align all views to a common start so buy&hold figures reconcile ---
+            # The Nasdaq-100 index begins later in 1985 than the S&P series. Trim the
+            # S&P timeline's daily era to start on the same date so every view spans
+            # the identical period and reports the same S&P buy&hold return.
+            q0 = tq["dates"][0]
+            keep = [i for i,ds in enumerate(timeline["dates"])
+                    if len(ds) != 10 or ds >= q0]          # keep monthly (pre-1985) + daily from q0
+            if len(keep) < len(timeline["dates"]):
+                dropped = len(timeline["dates"]) - len(keep)
+                for k in ("dates","V","T","px","ma","pos","bhret","stret"):
+                    timeline[k] = [timeline[k][i] for i in keep]
+                for k in ("pos","stret"):
+                    timeline_v1[k] = [timeline_v1[k][i] for i in keep]
+                # first daily bar starts the series: no carried-in return
+                fi = next((i for i,ds in enumerate(timeline["dates"]) if len(ds)==10), None)
+                if fi is not None:
+                    timeline["bhret"][fi] = 0.0; timeline["stret"][fi] = 0.0
+                    timeline_v1["stret"][fi] = 0.0
+                log(f"  aligned S&P timeline to Nasdaq start {q0} (trimmed {dropped} early-1985 days)")
         else:
             log(f"  QQQ variant DROPPED: only {len(tq['dates'])} points built.")
             log(f"    ndx rows={len(ndx)} ext rows={len(ext[ext.index>=S85])} "
