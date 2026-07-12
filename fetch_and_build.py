@@ -258,7 +258,11 @@ try:
         nret=ext.pct_change(); nma=ext.rolling(200).mean(); QDY=0.006
         # S&P benchmark aligned by calendar: accumulate all S&P daily returns that fall
         # between consecutive Nasdaq dates, so no S&P return is silently dropped.
-        sp_ret = pd.Series(tl_bh, index=pd.to_datetime(tl_dates))
+        # NOTE: tl_dates mixes "YYYY-MM" (pre-1985) with "YYYY-MM-DD" (daily). The QQQ
+        # timeline only needs 1985+, so use just the full-date entries.
+        _sp = [(dstr, r) for dstr, r in zip(tl_dates, tl_bh) if len(dstr) == 10]
+        sp_ret = pd.Series([r for _, r in _sp],
+                           index=pd.to_datetime([dstr for dstr, _ in _sp], format="%Y-%m-%d"))
         sp_ret = sp_ret[~sp_ret.index.duplicated(keep="last")].sort_index()
         sp_cum = (1.0 + sp_ret).cumprod()          # S&P wealth index on its own dates
         def sp_bench(prev_dt, dte):
