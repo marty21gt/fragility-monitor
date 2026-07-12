@@ -1,0 +1,40 @@
+name: Draft Analyst Note
+
+# Runs on the 2nd of each month (the day after the data refresh),
+# and whenever you click "Run workflow".
+# It DRAFTS a note and opens an issue for your review. It publishes nothing.
+on:
+  schedule:
+    - cron: "0 13 2 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the repository files
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Draft the note and open a review issue
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python draft_commentary.py
+
+      - name: Save the draft to the archive
+        run: |
+          git config user.name "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add commentary_archive/
+          git commit -m "Archive draft note $(date +%Y-%m)" || echo "No new draft to archive."
+          git push
