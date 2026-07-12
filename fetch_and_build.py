@@ -102,6 +102,62 @@ sp_daily = daily_sp()
 sh = pd.read_csv("https://raw.githubusercontent.com/datasets/s-and-p-500/main/data/data.csv")
 sh["Date"]=pd.to_datetime(sh["Date"]); sh=sh.set_index("Date")
 
+# ---- authoritative CAPE: Robert Shiller's own dataset (ie_data.xls) ----
+# The GitHub mirror stops updating CAPE in late 2023. Shiller publishes the real thing
+# monthly. Pull it and overwrite price / dividend / CAPE wherever he has data, so no
+# estimation is needed. Falls back to the estimator below if unreachable.
+SHILLER_URLS = [
+    "http://www.econ.yale.edu/~shiller/data/ie_data.xls",
+    "https://shillerdata.com/wp-content/uploads/ie_data.xls",
+]
+shiller_ok = False
+for _u in SHILLER_URLS:
+    try:
+        raw = requests.get(_u, headers={"User-Agent":"Mozilla/5.0"}, timeout=60).content
+        xl = pd.read_excel(io.BytesIO(raw), sheet_name="Data", header=None)
+        # find the header row (the one whose first cell is "Date")
+        hdr = next(i for i in range(15)
+                   if str(xl.iloc[i,0]).strip().lower().startswith("date"))
+        tbl = xl.iloc[hdr+1:].copy()
+        cols = [str(c).strip() for c in xl.iloc[hdr].tolist()]
+        tbl.columns = cols
+        def _find(*names):
+            for j,c in enumerate(cols):
+                cl = c.lower().replace(" ","")
+                if any(n in cl for n in names): return j
+            return None
+        j_date = 0
+        j_p    = _find("^p$","price") if False else 1      # col B = nominal price
+        j_d    = 2                                          # col C = dividend
+        j_cape = _find("cape","p/e10")
+        if j_cape is None: raise ValueError("CAPE column not found")
+        rows = 0
+        for _, r in tbl.iterrows():
+            dv = r.iloc[j_date]
+            if pd.isna(dv): continue
+            # Shiller encodes dates as YYYY.MM  (note 1871.1 == October, not January)
+            s = f"{float(dv):.2f}"
+            yy, mm = int(s.split(".")[0]), int(s.split(".")[1])
+            if mm < 1 or mm > 12: continue
+            m0 = pd.Timestamp(yy, mm, 1)
+            cp = pd.to_numeric(r.iloc[j_cape], errors="coerce")
+            pp = pd.to_numeric(r.iloc[j_p], errors="coerce")
+            dd_ = pd.to_numeric(r.iloc[j_d], errors="coerce")
+            if pd.notna(pp): sh.loc[m0,"SP500"] = float(pp)
+            if pd.notna(dd_): sh.loc[m0,"Dividend"] = float(dd_)
+            if pd.notna(cp): sh.loc[m0,"PE10"] = float(cp); rows += 1
+        sh = sh.sort_index()
+        last_cape = sh["PE10"].replace(0,np.nan).dropna()
+        log(f"  Shiller CAPE (authoritative): {rows} months, latest "
+            f"{last_cape.index.max():%Y-%m} = {last_cape.iloc[-1]:.1f}")
+        shiller_ok = True
+        break
+    except Exception as e:
+        log(f"  Shiller fetch failed ({_u.split('/')[2]}): {e}")
+if not shiller_ok:
+    log("  WARN: using ESTIMATED CAPE for recent months (see gap-fill below)")
+
+
 # ---- extend Shiller CAPE / price / dividend to the present (free mirror lags ~2 yrs) ----
 try:
     _hdr={"User-Agent":"Mozilla/5.0"}
@@ -164,7 +220,36 @@ nfci = fred("NFCI")                   # financial conditions
 # ---------- monthly panel + credit-momentum model (the timeline) ----------
 d = pd.DataFrame(index=sh.index)
 d["px"]=sh["SP500"]; d["div"]=sh["Dividend"].replace(0,np.nan); d["cape"]=sh["PE10"].replace(0,np.nan); d["yr"]=d.index.year
-cg = usj["tloans"]/usj["gdp"]; d["cg5"]=d["yr"].map(cg-cg.shift(5)); d["stir"]=d["yr"].map(usj["stir"])
+cg = usj["tloans"]/usj["gdp"]            # JST credit-to-GDP (ratio), ends 2016
+
+# ---- extend the leverage gauge past 2016 with the BIS series from FRED ----
+# JST stops in 2016, which silently dropped the leverage gauge out of the model.
+# QUSPAM770A is the BIS "credit to private non-financial sector, % of GDP" -- the same
+# concept, still updating. Splice it on, offset-matched at the overlap so the level is
+# continuous. (The gauge uses a 5-yr change, so a constant offset is largely harmless,
+# but matching keeps the transition window clean.)
+try:
+    bis = fred("QUSPAM770A")                      # quarterly, percent of GDP
+    if len(bis) > 20:
+        bis_a = (bis/100.0).groupby(bis.index.year).mean()        # annual ratio
+        ov = [y for y in cg.dropna().index if y in bis_a.index and y >= 2005]
+        if len(ov) >= 3:
+            offset = float(np.mean([cg[y]-bis_a[y] for y in ov]))
+            last_jst = int(cg.dropna().index.max()); added = 0
+            for y in sorted(bis_a.index):
+                if y > last_jst:
+                    cg.loc[y] = float(bis_a[y]) + offset; added += 1
+            cg = cg.sort_index()
+            log(f"  leverage gauge extended past {last_jst} with BIS credit/GDP "
+                f"(+{added} yrs, offset {offset:+.3f}) -> now current")
+        else:
+            log("  WARN: no BIS/JST overlap -- leverage gauge still ends 2016")
+    else:
+        log("  WARN: BIS credit/GDP unavailable -- leverage gauge still ends 2016")
+except Exception as e:
+    log(f"  WARN: leverage extension failed ({e}) -- gauge still ends 2016")
+
+d["cg5"]=d["yr"].map(cg-cg.shift(5)); d["stir"]=d["yr"].map(usj["stir"])
 for y,v in {2017:.93,2018:1.94,2019:2.11,2020:.37,2021:.04,2022:2.02,2023:5.14,2024:4.98,2025:4.30,2026:4.20}.items():
     d.loc[d.yr==y,"stir"]=v
 d["stir"]=d["stir"].ffill()
@@ -363,7 +448,8 @@ def addT(label, sub, frag):
     if frag is not None: curT.append({"label":label,"sub":sub,"frag":frag})
 
 cape_now = d["cape"].dropna().iloc[-1] if d["cape"].dropna().size else None
-addV("Valuation (CAPE)", (f"CAPE ~{cape_now:.0f} (est.)" if cape_now else "Shiller CAPE"), latest_pct(d["cape"]))
+_cape_lbl = (f"CAPE {cape_now:.0f}" if shiller_ok else f"CAPE ~{cape_now:.0f} (est.)") if cape_now else "Shiller CAPE"
+addV("Valuation (CAPE)", _cape_lbl, latest_pct(d["cape"]))
 addV("Volatility suppression","low realized vol = complacency", latest_pct(d["rvol"], invert=True))
 if len(bogz)>8:
     yoy=(bogz.rolling(2).mean().pct_change(4)*100).dropna()
