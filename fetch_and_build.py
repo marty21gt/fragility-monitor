@@ -309,6 +309,7 @@ except Exception as e:
     log(f"  WARN: BIS fetch failed ({e}) -- leverage gauge = {lev_note}")
 
 d["cg5"]=d["yr"].map(cg-cg.shift(5)); d["stir"]=d["yr"].map(usj["stir"])
+d["cg5_jst"]=d["yr"].map(jst_cg-jst_cg.shift(5))     # old gauge: JST bank loans, ends 2016
 for y,v in {2017:.93,2018:1.94,2019:2.11,2020:.37,2021:.04,2022:2.02,2023:5.14,2024:4.98,2025:4.30,2026:4.20}.items():
     d.loc[d.yr==y,"stir"]=v
 d["stir"]=d["stir"].ffill()
@@ -317,18 +318,22 @@ d["rvol"]=d["px"].pct_change().rolling(12).std()*np.sqrt(12); d["ma10"]=d["px"].
 d["tr"]=(d["px"]+d["div"]/12)/d["px"].shift(1)-1
 d=d.dropna(subset=["px"])
 capef=epct(d["cape"]); volsup=1-epct(d["rvol"]); levf=epct(d["cg5"]); comp=1-epct(d["spread"])
+levf_jst=epct(d["cg5_jst"])
 sm=epct(d["spread"]-d["spread"].shift(3))
 volup=d["rvol"]/d["rvol"].rolling(12).min()-1; mom3=d["px"].pct_change(3)
 d["V"]=pd.DataFrame({"a":capef,"b":volsup,"c":levf,"d":comp}).apply(lambda r:blend(list(r.values)),axis=1)
+d["V_jst"]=pd.DataFrame({"a":capef,"b":volsup,"c":levf_jst,"d":comp}).apply(lambda r:blend(list(r.values)),axis=1)
 d["T"]=pd.DataFrame({"a":epct(volup),"b":epct(-mom3),"c":sm}).apply(lambda r:blend(list(r.values)),axis=1)
 d=d.dropna(subset=["V","T","tr","ma10"])
 Ts,Vs,px,ma=d["T"].values,d["V"].values,d["px"].values,d["ma10"].values
-def make_pos(mode):
+Vs_jst=d["V_jst"].values
+def make_pos(mode, Vv=None):
+    if Vv is None: Vv = Vs
     pos=[]; state="in"
     for i in range(len(d)):
         pos.append(1 if state=="in" else 0)
         if state=="in":
-            if Vs[i]>=.62 and Ts[i]>=.55 and px[i]<ma[i]: state="out"
+            if Vv[i]>=.62 and Ts[i]>=.55 and px[i]<ma[i]: state="out"
         else:
             if mode=="v1":
                 if px[i]>ma[i]: state="in"                       # faster: re-enter once price reclaims the 200-day MA
@@ -336,8 +341,10 @@ def make_pos(mode):
                 if i>=1 and Ts[i]<.55 and Ts[i-1]<.55 and px[i]>ma[i]: state="in"
     return pos
 d["pos"]=make_pos("base"); d["pos_v1"]=make_pos("v1")
+d["pos_jst"]=make_pos("base", Vs_jst)                 # same rules, old JST leverage gauge
 d["sr"]=np.where(np.array(d["pos"])==1, d["tr"], d["stir"]/100/12)
 d["sr_v1"]=np.where(np.array(d["pos_v1"])==1, d["tr"], d["stir"]/100/12)
+d["sr_jst"]=np.where(np.array(d["pos_jst"])==1, d["tr"], d["stir"]/100/12)
 
 # ---------- timeline: monthly deep history + DAILY from 1985 (true fast-crash depth) ----------
 SPLICE = pd.Timestamp("1986-01-01")
@@ -347,6 +354,8 @@ tl_V=[round(float(x),3) for x in dm["V"]]; tl_T=[round(float(x),3) for x in dm["
 tl_px=[round(float(x),1) for x in dm["px"]]; tl_ma=[round(float(x),1) for x in dm["ma10"]]
 tl_pos=[int(x) for x in dm["pos"]]; tl_bh=[round(float(x),5) for x in dm["tr"]]; tl_sr=[round(float(x),5) for x in dm["sr"]]
 tl_pos_v1=[int(x) for x in dm["pos_v1"]]; tl_sr_v1=[round(float(x),5) for x in dm["sr_v1"]]
+tl_V_j=[round(float(x),3) for x in dm["V_jst"]]; tl_pos_j=[int(x) for x in dm["pos_jst"]]
+tl_sr_j=[round(float(x),5) for x in dm["sr_jst"]]
 def _num(x, d3):  # safe scalar
     try:
         f=float(x); return None if np.isnan(f) else f
@@ -359,6 +368,8 @@ if len(sp_daily) > 250:
     Tm=pd.Series(d["T"].values,index=d.index.to_period("M"))
     Pm=pd.Series(d["pos"].values,index=d.index.to_period("M"))
     Pm1=pd.Series(d["pos_v1"].values,index=d.index.to_period("M"))
+    PmJ=pd.Series(d["pos_jst"].values,index=d.index.to_period("M"))
+    VmJ=pd.Series(d["V_jst"].values,index=d.index.to_period("M"))
     Sm=pd.Series(d["stir"].values,index=d.index.to_period("M"))
     DY=pd.Series((sh["Dividend"]/sh["SP500"]).values,index=sh.index.to_period("M"))
     prev=None
@@ -367,6 +378,8 @@ if len(sp_daily) > 250:
         vv=_num(Vm.get(per),3); tv=_num(Tm.get(per),3); pv=_num(Pm.get(per),0); pv1=_num(Pm1.get(per),0)
         pv = tl_pos[-1] if pv is None else int(pv)
         pv1 = tl_pos_v1[-1] if pv1 is None else int(pv1)
+        pvj=_num(PmJ.get(per),0); pvj = tl_pos_j[-1] if pvj is None else int(pvj)
+        vvj=_num(VmJ.get(per),3)
         divy=_num(DY.get(per),6) or 0.0
         stira=_num(Sm.get(per),4); stira=4.0 if stira is None else stira
         bh = 0.0 if prev is None else (pxv/prev-1)+divy/252.0
@@ -380,13 +393,17 @@ if len(sp_daily) > 250:
         tl_ma.append(round(mav,1) if mav is not None else None)
         tl_pos.append(pv); tl_bh.append(round(bh,5)); tl_sr.append(round(sr,5))
         tl_pos_v1.append(pv1); tl_sr_v1.append(round(sr1,5))
+        srj = bh if pvj==1 else stira/100/252
+        tl_V_j.append(round(vvj,3) if vvj is not None else tl_V_j[-1])
+        tl_pos_j.append(pvj); tl_sr_j.append(round(srj,5))
         prev=pxv
 timeline={"dates":tl_dates,"V":tl_V,"T":tl_T,"px":tl_px,"ma":tl_ma,"pos":tl_pos,"bhret":tl_bh,"stret":tl_sr}
 timeline_v1={"pos":tl_pos_v1,"stret":tl_sr_v1}
+timeline_jst={"V":tl_V_j,"pos":tl_pos_j,"stret":tl_sr_j}
 monthly_pos = pd.Series(d["pos"].values, index=pd.DatetimeIndex(d.index))
 
 # ---------- QQQ variant: same S&P regime signal + S&P 200-day trend, Nasdaq-100 as risk-on vehicle ----------
-timeline_qqq = None; timeline_qqq_v1 = None
+timeline_qqq = None; timeline_qqq_v1 = None; timeline_qqq_jst = None
 try:
     ndx = daily_ndx()
     if len(ndx) <= 250:
@@ -394,6 +411,8 @@ try:
     if len(ndx) > 250:
         Pm=pd.Series(d["pos"].values,index=d.index.to_period("M"))
         Pm1=pd.Series(d["pos_v1"].values,index=d.index.to_period("M"))
+        PmJq=pd.Series(d["pos_jst"].values,index=d.index.to_period("M"))
+        VmJq=pd.Series(d["V_jst"].values,index=d.index.to_period("M"))
         Sm=pd.Series(d["stir"].values,index=d.index.to_period("M"))
         Vm=pd.Series(d["V"].values,index=d.index.to_period("M"))
         Tm=pd.Series(d["T"].values,index=d.index.to_period("M"))
@@ -417,7 +436,7 @@ try:
             if not len(a) or not len(b): return 0.0
             return float(b.iloc[-1]/a.iloc[-1] - 1.0)
         tq={"dates":[],"V":[],"T":[],"px":[],"ma":[],"pos":[],"bhret":[],"stret":[],"bhqqq":[]}
-        qpos1=[]; qsr1=[]; prev_q=None
+        qpos1=[]; qsr1=[]; qposj=[]; qsrj=[]; qVj=[]; prev_q=None
         for dte in ext.index[ext.index>=S85]:
             pm=dte.to_period("M")
             if pm not in Pm.index: continue
@@ -435,6 +454,8 @@ try:
             tq["px"].append(round(float(ext.loc[dte]),1)); tq["ma"].append(round(float(mav),1) if not pd.isna(mav) else None)
             tq["pos"].append(pos_i); tq["bhret"].append(round(bench,5)); tq["stret"].append(round(st,5)); tq["bhqqq"].append(round(qbh,5))
             qpos1.append(pos1_i); qsr1.append(round(st1,5))
+            pj=int(PmJq.loc[pm]); stj = qbh if pj==1 else cash
+            qposj.append(pj); qsrj.append(round(stj,5)); qVj.append(round(float(VmJq.loc[pm]),3))
         if len(tq["dates"])>250:
             # --- align all views to a common, clean start (1986) so buy&hold figures
             # reconcile AND every selectable year is a complete calendar year.
@@ -445,10 +466,13 @@ try:
                 for k in ("dates","V","T","px","ma","pos","bhret","stret","bhqqq"):
                     tq[k] = [tq[k][i] for i in qkeep]
                 qpos1 = [qpos1[i] for i in qkeep]; qsr1 = [qsr1[i] for i in qkeep]
+                qposj = [qposj[i] for i in qkeep]; qsrj = [qsrj[i] for i in qkeep]
+                qVj   = [qVj[i]   for i in qkeep]
             # first bar defines the 100% baseline: no carried-in return
             if tq["dates"]:
-                tq["bhret"][0]=0.0; tq["stret"][0]=0.0; tq["bhqqq"][0]=0.0; qsr1[0]=0.0
+                tq["bhret"][0]=0.0; tq["stret"][0]=0.0; tq["bhqqq"][0]=0.0; qsr1[0]=0.0; qsrj[0]=0.0
             timeline_qqq=tq; timeline_qqq_v1={"pos":qpos1,"stret":qsr1}
+            timeline_qqq_jst={"V":qVj,"pos":qposj,"stret":qsrj}
             log(f"  QQQ variant: {len(tq['dates'])} daily points from {tq['dates'][0] if tq['dates'] else 'n/a'}")
 
             keep = [i for i,ds in enumerate(timeline["dates"])
@@ -459,10 +483,12 @@ try:
                     timeline[k] = [timeline[k][i] for i in keep]
                 for k in ("pos","stret"):
                     timeline_v1[k] = [timeline_v1[k][i] for i in keep]
+                for k in ("V","pos","stret"):
+                    timeline_jst[k] = [timeline_jst[k][i] for i in keep]
                 fi = next((i for i,ds in enumerate(timeline["dates"]) if len(ds)==10), None)
                 if fi is not None:
                     timeline["bhret"][fi] = 0.0; timeline["stret"][fi] = 0.0
-                    timeline_v1["stret"][fi] = 0.0
+                    timeline_v1["stret"][fi] = 0.0; timeline_jst["stret"][fi] = 0.0
                 log(f"  aligned all views to {START} (trimmed {dropped} partial-1985 days)")
         else:
             log(f"  QQQ variant DROPPED: only {len(tq['dates'])} points built.")
@@ -537,7 +563,31 @@ data = {
 }
 if timeline_qqq: data["timeline_qqq"] = timeline_qqq
 data["timeline_v1"] = timeline_v1
+data["timeline_jst"] = timeline_jst
 if timeline_qqq_v1: data["timeline_qqq_v1"] = timeline_qqq_v1
+if timeline_qqq_jst: data["timeline_qqq_jst"] = timeline_qqq_jst
 with open("data.json","w",encoding="utf-8") as f:
     json.dump(data, f, separators=(",",":"), ensure_ascii=False)
+
+# ---- analysis.json: the raw monthly gauge components, for offline experimentation ----
+# data.json only carries the FINAL blended V/T. This file carries the ingredients, so any
+# variant (different weights, thresholds, gauge swaps) can be tested without re-fetching.
+try:
+    ana = {"note":"monthly gauge components; percentiles are point-in-time (expanding window)",
+           "dates":[t.strftime("%Y-%m") for t in d.index]}
+    for k, ser in [("cape",d["cape"]), ("rvol",d["rvol"]), ("spread",d["spread"]),
+                   ("cg5_bis",d["cg5"]), ("cg5_jst",d["cg5_jst"]),
+                   ("px",d["px"]), ("ma10",d["ma10"]), ("tr",d["tr"]), ("stir",d["stir"]),
+                   ("pct_cape",capef), ("pct_volsup",volsup), ("pct_lev_bis",levf),
+                   ("pct_lev_jst",levf_jst), ("pct_creditcomp",comp),
+                   ("pct_volup",epct(volup)), ("pct_pricemom",epct(-mom3)), ("pct_spreadmom",sm),
+                   ("V_bis",d["V"]), ("V_jst",d["V_jst"]), ("T",d["T"]),
+                   ("pos_bis",d["pos"]), ("pos_jst",d["pos_jst"])]:
+        s2 = pd.Series(ser).reindex(d.index)
+        ana[k] = [None if pd.isna(v) else round(float(v),5) for v in s2.values]
+    with open("analysis.json","w",encoding="utf-8") as f:
+        json.dump(ana, f, separators=(",",":"))
+    log(f"Wrote analysis.json  |  {len(ana['dates'])} months x {len(ana)-2} series")
+except Exception as e:
+    log(f"  analysis.json skipped: {e}")
 log(f"Wrote data.json  |  V-gauges {len(curV)}  T-gauges {len(curT)}  |  daily pts {len(priceSeries['dates'])}  |  timeline {len(timeline['dates'])} points (daily from 1985)")
