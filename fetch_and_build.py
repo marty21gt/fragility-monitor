@@ -113,16 +113,23 @@ sh["Date"]=pd.to_datetime(sh["Date"]); sh=sh.set_index("Date")
 # on each update, so we scrape the current download URL from the page rather than
 # hardcoding it. Falls back to the estimator below if unreachable.
 def _shiller_urls():
-    urls = []
+    # 1) the direct CDN file that shillerdata.com links to (versioned, but the path is stable)
+    urls = ["https://img1.wsimg.com/blobby/go/e5e77e0b-59d1-44d9-ab25-4763ac982e53/"
+            "downloads/907c87f4-4176-4a13-9487-abddeadceb1b/ie_data.xls?ver=1783525168910",
+            "https://img1.wsimg.com/blobby/go/e5e77e0b-59d1-44d9-ab25-4763ac982e53/"
+            "downloads/907c87f4-4176-4a13-9487-abddeadceb1b/ie_data.xls"]
+    # 2) whatever the page currently links to (in case the CDN path rotates)
     try:
         html = requests.get("https://shillerdata.com/", headers={"User-Agent":"Mozilla/5.0"},
                             timeout=45).text
         import re as _re
         for m in _re.findall(r'href="([^"]*ie_data[^"]*\.xls[^"]*)"', html, _re.I):
-            u = m if m.startswith("http") else ("https://shillerdata.com/" + m.lstrip("/"))
-            if "0001" not in u:            # skip the alternate/duplicate file
+            u = m.replace("&amp;", "&")
+            if not u.startswith("http"):
+                u = "https://shillerdata.com/" + u.lstrip("/")
+            if "0001" not in u and u not in urls:
                 urls.append(u)
-        if urls: log(f"  found {len(urls)} Shiller download link(s) on shillerdata.com")
+        log(f"  shillerdata.com: {len(urls)} candidate download link(s)")
     except Exception as e:
         log(f"  could not read shillerdata.com ({e})")
     urls.append("http://www.econ.yale.edu/~shiller/data/ie_data.xls")   # stale fallback
@@ -131,7 +138,15 @@ def _shiller_urls():
 shiller_ok = False
 for _u in _shiller_urls():
     try:
-        raw = requests.get(_u, headers={"User-Agent":"Mozilla/5.0"}, timeout=90).content
+        raw = requests.get(_u, timeout=90, headers={
+            "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer":"https://shillerdata.com/",
+            "Accept":"application/vnd.ms-excel,application/octet-stream,*/*"}).content
+        # content sniff: a real .xls is an OLE2 compound file (magic D0 CF 11 E0).
+        # Anything starting with '<' is an HTML error/interstitial page -- reject it.
+        if raw[:4] != b"\xd0\xcf\x11\xe0":
+            head = raw[:12].decode("ascii", "replace")
+            raise ValueError(f"not an .xls file (got {head!r})")
         xl = pd.read_excel(io.BytesIO(raw), sheet_name="Data", header=None, engine="xlrd")
         # find the header row (the one whose first cell is "Date")
         hdr = next(i for i in range(15)
