@@ -245,6 +245,8 @@ monthly_pos = pd.Series(d["pos"].values, index=pd.DatetimeIndex(d.index))
 timeline_qqq = None; timeline_qqq_v1 = None
 try:
     ndx = daily_ndx()
+    if len(ndx) <= 250:
+        log(f"  QQQ variant SKIPPED: ndx has only {len(ndx)} rows")
     if len(ndx) > 250:
         Pm=pd.Series(d["pos"].values,index=d.index.to_period("M"))
         Pm1=pd.Series(d["pos_v1"].values,index=d.index.to_period("M"))
@@ -288,6 +290,10 @@ try:
         if len(tq["dates"])>250:
             timeline_qqq=tq; timeline_qqq_v1={"pos":qpos1,"stret":qsr1}
             log(f"  QQQ variant: {len(tq['dates'])} daily points from 1985")
+        else:
+            log(f"  QQQ variant DROPPED: only {len(tq['dates'])} points built.")
+            log(f"    ndx rows={len(ndx)} ext rows={len(ext[ext.index>=S85])} "
+                f"Pm months={len(Pm.index)} Pm range={Pm.index.min()}..{Pm.index.max()}")
 except Exception as e:
     import traceback
     log(f"  QQQ variant FAILED: {type(e).__name__}: {e}")
