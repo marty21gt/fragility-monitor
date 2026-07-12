@@ -108,17 +108,30 @@ sh = pd.read_csv("https://raw.githubusercontent.com/datasets/s-and-p-500/main/da
 sh["Date"]=pd.to_datetime(sh["Date"]); sh=sh.set_index("Date")
 
 # ---- authoritative CAPE: Robert Shiller's own dataset (ie_data.xls) ----
-# The GitHub mirror stops updating CAPE in late 2023. Shiller publishes the real thing
-# monthly. Pull it and overwrite price / dividend / CAPE wherever he has data, so no
-# estimation is needed. Falls back to the estimator below if unreachable.
-SHILLER_URLS = [
-    "http://www.econ.yale.edu/~shiller/data/ie_data.xls",
-    "https://shillerdata.com/wp-content/uploads/ie_data.xls",
-]
-shiller_ok = False
-for _u in SHILLER_URLS:
+# The GitHub mirror -- and the old Yale URL -- both stop updating CAPE in Sept 2023.
+# The live file is hosted off shillerdata.com behind a versioned CDN link that rotates
+# on each update, so we scrape the current download URL from the page rather than
+# hardcoding it. Falls back to the estimator below if unreachable.
+def _shiller_urls():
+    urls = []
     try:
-        raw = requests.get(_u, headers={"User-Agent":"Mozilla/5.0"}, timeout=60).content
+        html = requests.get("https://shillerdata.com/", headers={"User-Agent":"Mozilla/5.0"},
+                            timeout=45).text
+        import re as _re
+        for m in _re.findall(r'href="([^"]*ie_data[^"]*\.xls[^"]*)"', html, _re.I):
+            u = m if m.startswith("http") else ("https://shillerdata.com/" + m.lstrip("/"))
+            if "0001" not in u:            # skip the alternate/duplicate file
+                urls.append(u)
+        if urls: log(f"  found {len(urls)} Shiller download link(s) on shillerdata.com")
+    except Exception as e:
+        log(f"  could not read shillerdata.com ({e})")
+    urls.append("http://www.econ.yale.edu/~shiller/data/ie_data.xls")   # stale fallback
+    return urls
+
+shiller_ok = False
+for _u in _shiller_urls():
+    try:
+        raw = requests.get(_u, headers={"User-Agent":"Mozilla/5.0"}, timeout=90).content
         xl = pd.read_excel(io.BytesIO(raw), sheet_name="Data", header=None, engine="xlrd")
         # find the header row (the one whose first cell is "Date")
         hdr = next(i for i in range(15)
@@ -136,7 +149,8 @@ for _u in SHILLER_URLS:
         j_d    = 2                                          # col C = dividend
         j_cape = _find("cape","p/e10")
         if j_cape is None: raise ValueError("CAPE column not found")
-        rows = 0
+        # stage the parse first -- do NOT touch `sh` until we know the file is fresh
+        stage = {}
         for _, r in tbl.iterrows():
             dv = r.iloc[j_date]
             if pd.isna(dv): continue
@@ -145,22 +159,32 @@ for _u in SHILLER_URLS:
             yy, mm = int(s.split(".")[0]), int(s.split(".")[1])
             if mm < 1 or mm > 12: continue
             m0 = pd.Timestamp(yy, mm, 1)
-            cp = pd.to_numeric(r.iloc[j_cape], errors="coerce")
-            pp = pd.to_numeric(r.iloc[j_p], errors="coerce")
-            dd_ = pd.to_numeric(r.iloc[j_d], errors="coerce")
+            stage[m0] = (pd.to_numeric(r.iloc[j_p], errors="coerce"),
+                         pd.to_numeric(r.iloc[j_d], errors="coerce"),
+                         pd.to_numeric(r.iloc[j_cape], errors="coerce"))
+        capes = {k:v[2] for k,v in stage.items() if pd.notna(v[2])}
+        if not capes: raise ValueError("no CAPE values parsed")
+        newest = max(capes)
+        age_mo = (pd.Timestamp.today().to_period("M") - newest.to_period("M")).n
+        # A live Shiller file should be at most a few months behind. If it is years old,
+        # it is an archived copy -- reject it and try the next source.
+        if age_mo > 9:
+            log(f"  Shiller file is STALE (latest CAPE {newest:%Y-%m}, {age_mo} months old) "
+                f"-- rejecting, trying next source")
+            continue
+        for m0,(pp,dd_,cp) in stage.items():
             if pd.notna(pp): sh.loc[m0,"SP500"] = float(pp)
             if pd.notna(dd_): sh.loc[m0,"Dividend"] = float(dd_)
-            if pd.notna(cp): sh.loc[m0,"PE10"] = float(cp); rows += 1
+            if pd.notna(cp): sh.loc[m0,"PE10"] = float(cp)
         sh = sh.sort_index()
-        last_cape = sh["PE10"].replace(0,np.nan).dropna()
-        log(f"  Shiller CAPE (authoritative): {rows} months, latest "
-            f"{last_cape.index.max():%Y-%m} = {last_cape.iloc[-1]:.1f}")
+        log(f"  Shiller CAPE (authoritative): {len(capes)} months, latest "
+            f"{newest:%Y-%m} = {capes[newest]:.1f}  [{age_mo} mo old]")
         shiller_ok = True
         break
     except Exception as e:
         log(f"  Shiller fetch failed ({_u.split('/')[2]}): {e}")
 if not shiller_ok:
-    log("  WARN: using ESTIMATED CAPE for recent months (see gap-fill below)")
+    log("  WARN: no fresh Shiller file -- using ESTIMATED CAPE for recent months")
 
 
 # ---- extend Shiller CAPE / price / dividend to the present (free mirror lags ~2 yrs) ----
