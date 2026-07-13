@@ -24,14 +24,18 @@ with open("data.json", encoding="utf-8") as f:
 cur = data.get("current", {})
 V = cur.get("vulnerability", []); T = cur.get("trigger", [])
 def blend(rows):
-    v = [r["frag"] for r in rows if r.get("frag") is not None]
+    # only SCORING gauges feed V/T -- context gauges (margin debt, NFCI) are display-only
+    v = [r["frag"] for r in rows if r.get("frag") is not None and r.get("score", True)]
     if not v: return None
     s = sorted(v, reverse=True); tail = sum(s[:2])/2 if len(s) >= 2 else s[0]
     return 0.70*(sum(v)/len(v)) + 0.30*tail
 vs, ts = blend(V), blend(T)
 state = ("Danger" if (vs>=.62 and ts>=.55) else "Elevated" if vs>=.62
          else "Stress" if ts>=.55 else "Calm") if (vs and ts) else "Unknown"
-gauges = "\n".join(f"  - {r['label']}: {r['frag']:.2f}  ({r['sub']})" for r in V+T)
+gauges = "\n".join(f"  - {r['label']}: {r['frag']:.2f}  ({r['sub']})"
+                   for r in V+T if r.get("score", True))
+context = "\n".join(f"  - {r['label']}: {r['frag']:.2f}  ({r['sub']})"
+                    for r in V+T if not r.get("score", True)) or "  (none)"
 prior = ""
 if os.path.exists("commentary.txt"):
     prior = open("commentary.txt", encoding="utf-8").read().strip()
@@ -41,8 +45,11 @@ systemic-risk dashboard for a Registered Investment Advisor. It is educational c
 
 Current reading ({dt.date.today():%B %Y}):
   Vulnerability: {vs:.2f}   Trigger: {ts:.2f}   State: {state}
-Gauges:
+Scoring gauges (these produce V and T):
 {gauges}
+
+Context gauges (NOT in the score -- for qualitative colour only):
+{context}
 
 The framework: Vulnerability = how primed/leveraged/overvalued the system is (the "tinder").
 Trigger = whether stress is actively igniting now (the "spark"). A large drawdown needs both.
