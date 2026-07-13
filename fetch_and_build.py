@@ -334,6 +334,14 @@ d["V"]    =pd.DataFrame({"a":capef,"b":volsup,"c":comp}).apply(lambda r:blend(li
 d["V_alt"]=pd.DataFrame({"a":capef,"b":volsup,"c":levf,"d":comp}).apply(lambda r:blend(list(r.values)),axis=1)  # comparison: with JST credit/GDP
 d["T"]=pd.DataFrame({"a":epct(volup),"b":epct(-mom3),"c":sm}).apply(lambda r:blend(list(r.values)),axis=1)
 d=d.dropna(subset=["V","T","tr","ma10"])
+# ---- DECISION THRESHOLDS (single source of truth) ----
+# Chosen from the modern-era (1950+) sweep: the -26% drawdown plateau spans V<=0.62,
+# T<=0.65. Raising T from .55 to .65 lifts wealth ~35% with the SAME drawdown (the old
+# trigger fired on too many shocks that did not matter). Lowering V from .62 to .54 moves
+# off the V>=0.66 cliff (where drawdown jumps to -39%) and is where the vulnerability gate
+# actually discriminates (1.9x lift on severe outcomes vs 1.1x at 0.62).
+V_THR = 0.54
+T_THR = 0.65
 Ts,Vs,px,ma=d["T"].values,d["V"].values,d["px"].values,d["ma10"].values
 Vs_alt=d["V_alt"].values
 def make_pos(mode, Vv=None):
@@ -342,12 +350,12 @@ def make_pos(mode, Vv=None):
     for i in range(len(d)):
         pos.append(1 if state=="in" else 0)
         if state=="in":
-            if Vv[i]>=.62 and Ts[i]>=.55 and px[i]<ma[i]: state="out"
+            if Vv[i]>=V_THR and Ts[i]>=T_THR and px[i]<ma[i]: state="out"
         else:
             if mode=="v1":
                 if px[i]>ma[i]: state="in"                       # faster: re-enter once price reclaims the 200-day MA
             else:
-                if i>=1 and Ts[i]<.55 and Ts[i-1]<.55 and px[i]>ma[i]: state="in"
+                if i>=1 and Ts[i]<T_THR and Ts[i-1]<T_THR and px[i]>ma[i]: state="in"
     return pos
 d["pos"]=make_pos("base"); d["pos_v1"]=make_pos("v1")
 d["pos_alt"]=make_pos("base", Vs_alt)                 # comparison: BIS leverage gauge
@@ -571,6 +579,7 @@ data = {
   "timeline": timeline
 }
 if timeline_qqq: data["timeline_qqq"] = timeline_qqq
+data["thresholds"] = {"V": V_THR, "T": T_THR}
 data["timeline_v1"] = timeline_v1
 data["timeline_alt"] = timeline_alt
 if timeline_qqq_v1: data["timeline_qqq_v1"] = timeline_qqq_v1
