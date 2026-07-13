@@ -322,8 +322,16 @@ levf     = epct(d["cg5_jst"])   # GAUGE OF RECORD: JST bank loans (preserves the
 levf_bis = epct(d["cg5"])       # comparison variant: BIS total credit
 sm=epct(d["spread"]-d["spread"].shift(3))
 volup=d["rvol"]/d["rvol"].rolling(12).min()-1; mom3=d["px"].pct_change(3)
-d["V"]    =pd.DataFrame({"a":capef,"b":volsup,"c":levf,    "d":comp}).apply(lambda r:blend(list(r.values)),axis=1)
-d["V_alt"]=pd.DataFrame({"a":capef,"b":volsup,"c":levf_bis,"d":comp}).apply(lambda r:blend(list(r.values)),axis=1)
+# GAUGE OF RECORD: credit-to-GDP is DROPPED from vulnerability.
+#   - it changed no positions since 1991
+#   - JST data dies in 2016; BIS cannot rank its own early history (missed 1973-74)
+#   - BIS currently sits at the 1st percentile and would SUPPRESS V during a genuine
+#     market-leverage boom (margin debt +28% YoY) -- it measures economy-wide debt,
+#     not market speculation, which is the wrong instrument for an equity-crash model
+# Credit risk is still captured by credit-spread COMPRESSION (here) and credit-spread
+# MOMENTUM (in the trigger) -- both live, official, market-priced FRED series.
+d["V"]    =pd.DataFrame({"a":capef,"b":volsup,"c":comp}).apply(lambda r:blend(list(r.values)),axis=1)
+d["V_alt"]=pd.DataFrame({"a":capef,"b":volsup,"c":levf,"d":comp}).apply(lambda r:blend(list(r.values)),axis=1)  # comparison: with JST credit/GDP
 d["T"]=pd.DataFrame({"a":epct(volup),"b":epct(-mom3),"c":sm}).apply(lambda r:blend(list(r.values)),axis=1)
 d=d.dropna(subset=["V","T","tr","ma10"])
 Ts,Vs,px,ma=d["T"].values,d["V"].values,d["px"].values,d["ma10"].values
@@ -528,10 +536,10 @@ def latest_pct(series, invert=False, mom=None):
     return round(1-v if invert else v, 2)
 
 curV, curT = [], []
-def addV(label, sub, frag):
-    if frag is not None: curV.append({"label":label,"sub":sub,"frag":frag})
-def addT(label, sub, frag):
-    if frag is not None: curT.append({"label":label,"sub":sub,"frag":frag})
+def addV(label, sub, frag, score=True):
+    if frag is not None: curV.append({"label":label,"sub":sub,"frag":frag,"score":bool(score)})
+def addT(label, sub, frag, score=True):
+    if frag is not None: curT.append({"label":label,"sub":sub,"frag":frag,"score":bool(score)})
 
 cape_now = d["cape"].dropna().iloc[-1] if d["cape"].dropna().size else None
 _cape_lbl = (f"CAPE {cape_now:.0f}" if shiller_ok else f"CAPE ~{cape_now:.0f} (est.)") if cape_now else "Shiller CAPE"
@@ -539,16 +547,16 @@ addV("Valuation (CAPE)", _cape_lbl, latest_pct(d["cape"]))
 addV("Volatility suppression","low realized vol = complacency", latest_pct(d["rvol"], invert=True))
 if len(bogz)>8:
     yoy=(bogz.rolling(2).mean().pct_change(4)*100).dropna()
-    addV("Margin-loan leverage", (f"{yoy.iloc[-1]:+.0f}% YoY" if len(yoy) else "FRED margin loans"),
-         (round(float((yoy<=yoy.iloc[-1]).mean()),2) if len(yoy)>8 else None))
+    addV("Margin-loan leverage", (f"{yoy.iloc[-1]:+.0f}% YoY \u00b7 context" if len(yoy) else "FRED margin loans \u00b7 context"),
+         (round(float((yoy<=yoy.iloc[-1]).mean()),2) if len(yoy)>8 else None), score=False)
 sp_m=(baa-aaa).dropna()
 if len(sp_m)>24:
     addV("Credit-spread compression", f"Baa\u2013Aaa {sp_m.iloc[-1]:.2f}%", latest_pct(sp_m, invert=True))
     addT("Credit spreads widening","3-month momentum", latest_pct(sp_m, mom=3))
-addV("Loose financial conditions", (f"NFCI {nfci.iloc[-1]:+.2f}" if len(nfci) else "NFCI"), latest_pct(nfci))
+addV("Loose financial conditions", (f"NFCI {nfci.iloc[-1]:+.2f} \u00b7 context" if len(nfci) else "NFCI \u00b7 context"), latest_pct(nfci), score=False)
 addT("Volatility rising","vs recent calm", latest_pct(d["rvol"], mom=3))
 addT("Price momentum","trailing 3-month fall", latest_pct(-d["px"].pct_change(3)))
-if len(nfci): addT("Conditions tightening","NFCI momentum", latest_pct(nfci, mom=3))
+if len(nfci): addT("Conditions tightening","NFCI momentum \u00b7 context", latest_pct(nfci, mom=3), score=False)
 
 # commentary: editable file in the repo (later written by the approval workflow)
 commentary = "Commentary pending review."
