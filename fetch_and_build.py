@@ -392,30 +392,49 @@ if len(sp_daily) > 250:
     Sm=pd.Series(d["stir"].values,index=d.index.to_period("M"))
     DY=pd.Series((sh["Dividend"]/sh["SP500"]).values,index=sh.index.to_period("M"))
     prev=None
+    # ---- DAILY STATE MACHINE (final rule) ----
+    # EXIT promptly when monthly V>=thr AND monthly T>=thr AND price<200dMA.
+    # RE-ENTER after price closes above the 200dMA for RE_DAYS consecutive trading days.
+    # (No exit persistence; the re-entry persistence is what carries the edge.)
+    RE_DAYS = 21
+    dstate="in"; days_above=0; days_below=0
     for dte,pxv in dd.items():
         per=dte.to_period("M")
-        vv=_num(Vm.get(per),3); tv=_num(Tm.get(per),3); pv=_num(Pm.get(per),0); pv1=_num(Pm1.get(per),0)
-        pv = tl_pos[-1] if pv is None else int(pv)
-        pv1 = tl_pos_v1[-1] if pv1 is None else int(pv1)
-        pvj=_num(PmJ.get(per),0); pvj = tl_pos_j[-1] if pvj is None else int(pvj)
+        vv=_num(Vm.get(per),3); tv=_num(Tm.get(per),3)
         vvj=_num(VmJ.get(per),3)
         divy=_num(DY.get(per),6) or 0.0
         stira=_num(Sm.get(per),4); stira=4.0 if stira is None else stira
+        mav=_num(ma200.get(dte),1)
+        # running MA-streak counters
+        if mav is not None:
+            if pxv>mav: days_above+=1; days_below=0
+            elif pxv<mav: days_below+=1; days_above=0
+        # position transitions
+        vlast = vv if vv is not None else (tl_V[-1] if tl_V else 0)
+        tlast = tv if tv is not None else (tl_T[-1] if tl_T else 0)
+        if dstate=="in":
+            if mav is not None and vlast>=V_THR and tlast>=T_THR and pxv<mav:
+                dstate="out"
+        else:
+            if mav is not None and days_above>=RE_DAYS:
+                dstate="in"
+        pv = 1 if dstate=="in" else 0
         bh = 0.0 if prev is None else (pxv/prev-1)+divy/252.0
         sr = bh if pv==1 else stira/100/252
-        sr1 = bh if pv1==1 else stira/100/252
-        mav=_num(ma200.get(dte),1)
         tl_dates.append(dte.strftime("%Y-%m-%d"))
         tl_V.append(round(vv,3) if vv is not None else tl_V[-1])
         tl_T.append(round(tv,3) if tv is not None else tl_T[-1])
         tl_px.append(round(float(pxv),1))
         tl_ma.append(round(mav,1) if mav is not None else None)
         tl_pos.append(pv); tl_bh.append(round(bh,5)); tl_sr.append(round(sr,5))
-        tl_pos_v1.append(pv1); tl_sr_v1.append(round(sr1,5))
-        srj = bh if pvj==1 else stira/100/252
+        tl_pos_v1.append(pv); tl_sr_v1.append(round(sr,5))          # v1 retired -> mirror base
+        srj = bh if pv==1 else stira/100/252
         tl_V_j.append(round(vvj,3) if vvj is not None else tl_V_j[-1])
-        tl_pos_j.append(pvj); tl_sr_j.append(round(srj,5))
+        tl_pos_j.append(pv); tl_sr_j.append(round(srj,5))           # alt retired -> mirror base
         prev=pxv
+    # expose the current MA-streak so the page can show the counter/alert
+    globals()["MA_STREAK"] = {"above": days_above, "below": days_below,
+                              "state": dstate, "re_days": RE_DAYS}
 timeline={"dates":tl_dates,"V":tl_V,"T":tl_T,"px":tl_px,"ma":tl_ma,"pos":tl_pos,"bhret":tl_bh,"stret":tl_sr}
 timeline_v1={"pos":tl_pos_v1,"stret":tl_sr_v1}
 timeline_alt={"V":tl_V_j,"pos":tl_pos_j,"stret":tl_sr_j}
@@ -512,16 +531,26 @@ except Exception as e:
 
 # ---------- daily price series + 200-day MA + mapped position (recent window) ----------
 priceSeries={"dates":[],"px":[],"ma":[],"pos":[]}
+ma_counter={"above":0,"below":0,"state":"in","re_days":21,"triggered":False}
 if len(sp_daily) > 250:
     ma200 = sp_daily.rolling(200).mean()
     cutoff = sp_daily.index[-1] - pd.DateOffset(months=18)
+    # map the daily timeline positions (the real rule) onto these dates
+    tl_map = dict(zip(timeline["dates"], timeline["pos"]))
     for dte in sp_daily.index[sp_daily.index >= cutoff]:
         pxv = float(sp_daily.loc[dte]); mav = ma200.loc[dte]
-        mp = monthly_pos[monthly_pos.index <= dte]
-        priceSeries["dates"].append(dte.strftime("%Y-%m-%d"))
+        ds = dte.strftime("%Y-%m-%d")
+        priceSeries["dates"].append(ds)
         priceSeries["px"].append(round(pxv, 1))
         priceSeries["ma"].append(round(float(mav), 1) if pd.notna(mav) else None)
-        priceSeries["pos"].append(int(mp.iloc[-1]) if len(mp) else 1)
+        priceSeries["pos"].append(int(tl_map.get(ds, 1)))
+    # the live counter comes straight from the daily state machine
+    if "MA_STREAK" in globals():
+        s=globals()["MA_STREAK"]
+        ma_counter={"above":s["above"],"below":s["below"],"state":s["state"],
+                    "re_days":s["re_days"],
+                    # "triggered" = currently risk-off (exit fired, waiting for re-entry)
+                    "triggered": s["state"]=="out"}
 else:
     tailN = 72
     priceSeries = {"dates":timeline["dates"][-tailN:], "px":timeline["px"][-tailN:],
@@ -574,6 +603,7 @@ data = {
 }
 if timeline_qqq: data["timeline_qqq"] = timeline_qqq
 data["thresholds"] = {"V": V_THR, "T": T_THR}
+data["maCounter"] = ma_counter
 data["timeline_v1"] = timeline_v1
 data["timeline_alt"] = timeline_alt
 if timeline_qqq_v1: data["timeline_qqq_v1"] = timeline_qqq_v1
