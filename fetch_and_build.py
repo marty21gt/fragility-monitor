@@ -60,7 +60,7 @@ def daily_sp():
     # fallback: yfinance (handle both Series and DataFrame return shapes)
     try:
         import yfinance as yf
-        raw = yf.download("^GSPC", start="1983-01-01", progress=False, auto_adjust=False)
+        raw = yf.download("^GSPC", start="1928-01-01", progress=False, auto_adjust=False)
         close = raw["Close"]
         if isinstance(close, pd.DataFrame):
             close = close.iloc[:, 0]
@@ -363,8 +363,10 @@ d["sr"]=np.where(np.array(d["pos"])==1, d["tr"], d["stir"]/100/12)
 d["sr_v1"]=np.where(np.array(d["pos_v1"])==1, d["tr"], d["stir"]/100/12)
 d["sr_alt"]=np.where(np.array(d["pos_alt"])==1, d["tr"], d["stir"]/100/12)
 
-# ---------- timeline: monthly deep history + DAILY from 1985 (true fast-crash depth) ----------
-SPLICE = pd.Timestamp("1986-01-01")
+# ---------- timeline: monthly deep history + DAILY from 1928 (true fast-crash depth) ----------
+# Yahoo ^GSPC daily runs to 1928, so the daily block now covers 1929, 1937, the 1970s,
+# and every modern crisis -- a far deeper daily backtest than the old 1986 start.
+SPLICE = pd.Timestamp("1928-01-01")
 dm = d[d.index < SPLICE]
 tl_dates=[t.strftime("%Y-%m") for t in dm.index]
 tl_V=[round(float(x),3) for x in dm["V"]]; tl_T=[round(float(x),3) for x in dm["T"]]
