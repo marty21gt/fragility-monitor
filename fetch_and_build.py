@@ -494,21 +494,13 @@ try:
             timeline_qqq_alt={"V":qVj,"pos":qposj,"stret":qsrj}
             log(f"  QQQ variant: {len(tq['dates'])} daily points from {tq['dates'][0] if tq['dates'] else 'n/a'}")
 
-            keep = [i for i,ds in enumerate(timeline["dates"])
-                    if len(ds) != 10 or ds >= START]      # monthly (pre-1985) + daily from 1986
-            if len(keep) < len(timeline["dates"]):
-                dropped = len(timeline["dates"]) - len(keep)
-                for k in ("dates","V","T","px","ma","pos","bhret","stret"):
-                    timeline[k] = [timeline[k][i] for i in keep]
-                for k in ("pos","stret"):
-                    timeline_v1[k] = [timeline_v1[k][i] for i in keep]
-                for k in ("V","pos","stret"):
-                    timeline_alt[k] = [timeline_alt[k][i] for i in keep]
-                fi = next((i for i,ds in enumerate(timeline["dates"]) if len(ds)==10), None)
-                if fi is not None:
-                    timeline["bhret"][fi] = 0.0; timeline["stret"][fi] = 0.0
-                    timeline_v1["stret"][fi] = 0.0; timeline_alt["stret"][fi] = 0.0
-                log(f"  aligned all views to {START} (trimmed {dropped} partial-1985 days)")
+            # NOTE: we deliberately do NOT trim the S&P timeline to 1986. Now that Yahoo
+            # gives daily ^GSPC back to 1928, the S&P daily block keeps its full depth
+            # (monthly pre-1928 + daily from 1929, once credit gauges exist). Only the QQQ
+            # views are trimmed to 1986, since the Nasdaq-100 has no earlier history.
+            # The S&P daily era begins at the SPLICE date set above.
+            log(f"  S&P daily block kept full depth from {SPLICE.strftime('%Y-%m')}; "
+                f"QQQ views trimmed to {START}")
         else:
             log(f"  QQQ variant DROPPED: only {len(tq['dates'])} points built.")
             log(f"    ndx rows={len(ndx)} ext rows={len(ext[ext.index>=S85])} "
