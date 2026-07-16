@@ -443,90 +443,90 @@ timeline_v1={"pos":tl_pos_v1,"stret":tl_sr_v1}
 timeline_alt={"V":tl_V_j,"pos":tl_pos_j,"stret":tl_sr_j}
 monthly_pos = pd.Series(d["pos"].values, index=pd.DatetimeIndex(d.index))
 
-# ---------- QQQ variant: same S&P regime signal + S&P 200-day trend, Nasdaq-100 as risk-on vehicle ----------
-timeline_qqq = None; timeline_qqq_v1 = None; timeline_qqq_alt = None
+# ---------- QQQ variant: shared S&P regime scores (V,T) + QQQ's OWN 200-day trend, ----------
+# ---------- Nasdaq-100 as the risk-on vehicle. Single variant, real daily state machine. ----------
+timeline_qqq = None
 try:
     ndx = daily_ndx()
     if len(ndx) <= 250:
         log(f"  QQQ variant SKIPPED: ndx has only {len(ndx)} rows")
     if len(ndx) > 250:
-        Pm=pd.Series(d["pos"].values,index=d.index.to_period("M"))
-        Pm1=pd.Series(d["pos_v1"].values,index=d.index.to_period("M"))
-        PmJq=pd.Series(d["pos_alt"].values,index=d.index.to_period("M"))
-        VmJq=pd.Series(d["V_alt"].values,index=d.index.to_period("M"))
-        Sm=pd.Series(d["stir"].values,index=d.index.to_period("M"))
-        Vm=pd.Series(d["V"].values,index=d.index.to_period("M"))
-        Tm=pd.Series(d["T"].values,index=d.index.to_period("M"))
-        S85=pd.Timestamp("1986-01-01")
-        ext=ndx[ndx.index>=(S85-pd.DateOffset(months=2))]
-        nret=ext.pct_change(); nma=ext.rolling(200).mean(); QDY=0.006
-        # S&P benchmark aligned by calendar: accumulate all S&P daily returns that fall
-        # between consecutive Nasdaq dates, so no S&P return is silently dropped.
-        # NOTE: tl_dates mixes "YYYY-MM" (pre-1985) with "YYYY-MM-DD" (daily). The QQQ
-        # timeline only needs 1985+, so use just the full-date entries.
-        _sp = [(dstr, r) for dstr, r in zip(tl_dates, tl_bh) if len(dstr) == 10]
+        def _sf(x):
+            try:
+                f = float(x); return None if f != f else f
+            except Exception:
+                return None
+        Vm = pd.Series(d["V"].values,    index=d.index.to_period("M"))
+        Tm = pd.Series(d["T"].values,    index=d.index.to_period("M"))
+        Sm = pd.Series(d["stir"].values, index=d.index.to_period("M"))
+        S85 = pd.Timestamp("1986-01-01")
+        ext = ndx[ndx.index >= (S85 - pd.DateOffset(months=2))]
+        nret = ext.pct_change(); nma = ext.rolling(200).mean(); QDY = 0.006
+        # S&P benchmark aligned by calendar (for the "QQQ vs S&P" view): compound every
+        # S&P daily return that falls between consecutive Nasdaq dates so none is dropped.
+        _sp = [(ds, r) for ds, r in zip(tl_dates, tl_bh) if len(ds) == 10]
         sp_ret = pd.Series([r for _, r in _sp],
-                           index=pd.to_datetime([dstr for dstr, _ in _sp], format="%Y-%m-%d"))
+                           index=pd.to_datetime([ds for ds, _ in _sp], format="%Y-%m-%d"))
         sp_ret = sp_ret[~sp_ret.index.duplicated(keep="last")].sort_index()
-        sp_cum = (1.0 + sp_ret).cumprod()          # S&P wealth index on its own dates
+        sp_cum = (1.0 + sp_ret).cumprod()
         def sp_bench(prev_dt, dte):
-            """compounded S&P return over (prev_dt, dte]"""
             if prev_dt is None: return 0.0
-            a = sp_cum[sp_cum.index <= prev_dt]
-            b = sp_cum[sp_cum.index <= dte]
+            a = sp_cum[sp_cum.index <= prev_dt]; b = sp_cum[sp_cum.index <= dte]
             if not len(a) or not len(b): return 0.0
-            return float(b.iloc[-1]/a.iloc[-1] - 1.0)
-        tq={"dates":[],"V":[],"T":[],"px":[],"ma":[],"pos":[],"bhret":[],"stret":[],"bhqqq":[]}
-        qpos1=[]; qsr1=[]; qposj=[]; qsrj=[]; qVj=[]; prev_q=None
-        for dte in ext.index[ext.index>=S85]:
-            pm=dte.to_period("M")
-            if pm not in Pm.index: continue
-            r=nret.loc[dte]
+            return float(b.iloc[-1] / a.iloc[-1] - 1.0)
+        # ---- DAILY STATE MACHINE (the real rule) ----
+        # EXIT  when monthly V >= V_THR AND monthly T >= T_THR AND QQQ has closed below
+        #       its own 200-day MA for EXIT_DAYS consecutive trading days.
+        # ENTER after QQQ closes above its own 200-day MA for RE_DAYS consecutive days.
+        # Keying the trend leg to QQQ (not the S&P) is what catches the Nasdaq-specific
+        # collapses (2000-02, 2008) and holds this drawdown near the S&P strategy's.
+        EXIT_DAYS = 8; RE_DAYS = 15
+        tq = {"dates":[],"V":[],"T":[],"px":[],"ma":[],"pos":[],"bhret":[],"stret":[],"bhqqq":[]}
+        dstate = "in"; days_above = 0; days_below = 0; prev_q = None; vlast = 0.0; tlast = 0.0
+        for dte in ext.index[ext.index >= S85]:
+            r = nret.loc[dte]
             if pd.isna(r): continue
-            pos_i=int(Pm.loc[pm]); pos1_i=int(Pm1.loc[pm]); sti=Sm.loc[pm]
-            cash=(float(sti)/100/252 if not pd.isna(sti) else 0.0)
-            qbh=float(r)+QDY/252
-            st=qbh if pos_i==1 else cash
-            st1=qbh if pos1_i==1 else cash
-            bench=sp_bench(prev_q, dte); prev_q=dte
-            mav=nma.loc[dte]
+            per = dte.to_period("M")
+            vv = _sf(Vm.get(per)); tv = _sf(Tm.get(per))
+            if vv is not None: vlast = vv
+            if tv is not None: tlast = tv
+            sti = _sf(Sm.get(per)); sti = 4.0 if sti is None else sti
+            cash = sti / 100 / 252
+            mav = nma.loc[dte]; pxv = float(ext.loc[dte])
+            if pd.notna(mav):
+                if pxv > mav: days_above += 1; days_below = 0
+                elif pxv < mav: days_below += 1; days_above = 0
+            if dstate == "in":
+                if pd.notna(mav) and vlast >= V_THR and tlast >= T_THR and days_below >= EXIT_DAYS:
+                    dstate = "out"
+            else:
+                if pd.notna(mav) and days_above >= RE_DAYS:
+                    dstate = "in"
+            pos_i = 1 if dstate == "in" else 0
+            qbh = float(r) + QDY / 252
+            st = qbh if pos_i == 1 else cash
+            bench = sp_bench(prev_q, dte); prev_q = dte
             tq["dates"].append(dte.strftime("%Y-%m-%d"))
-            tq["V"].append(round(float(Vm.loc[pm]),3)); tq["T"].append(round(float(Tm.loc[pm]),3))
-            tq["px"].append(round(float(ext.loc[dte]),1)); tq["ma"].append(round(float(mav),1) if not pd.isna(mav) else None)
-            tq["pos"].append(pos_i); tq["bhret"].append(round(bench,5)); tq["stret"].append(round(st,5)); tq["bhqqq"].append(round(qbh,5))
-            qpos1.append(pos1_i); qsr1.append(round(st1,5))
-            pj=int(PmJq.loc[pm]); stj = qbh if pj==1 else cash
-            qposj.append(pj); qsrj.append(round(stj,5)); qVj.append(round(float(VmJq.loc[pm]),3))
-        if len(tq["dates"])>250:
-            # --- align all views to a common, clean start (1986) so buy&hold figures
-            # reconcile AND every selectable year is a complete calendar year.
-            # (The Nasdaq-100 index began late in 1985, so 1985 would be a partial year.)
+            tq["V"].append(round(vlast, 3)); tq["T"].append(round(tlast, 3))
+            tq["px"].append(round(pxv, 1))
+            tq["ma"].append(round(float(mav), 1) if pd.notna(mav) else None)
+            tq["pos"].append(pos_i); tq["bhret"].append(round(bench, 5))
+            tq["stret"].append(round(st, 5)); tq["bhqqq"].append(round(qbh, 5))
+        if len(tq["dates"]) > 250:
             START = "1986-01-01"
-            qkeep = [i for i,ds in enumerate(tq["dates"]) if ds >= START]
+            qkeep = [i for i, ds in enumerate(tq["dates"]) if ds >= START]
             if qkeep and len(qkeep) < len(tq["dates"]):
                 for k in ("dates","V","T","px","ma","pos","bhret","stret","bhqqq"):
                     tq[k] = [tq[k][i] for i in qkeep]
-                qpos1 = [qpos1[i] for i in qkeep]; qsr1 = [qsr1[i] for i in qkeep]
-                qposj = [qposj[i] for i in qkeep]; qsrj = [qsrj[i] for i in qkeep]
-                qVj   = [qVj[i]   for i in qkeep]
-            # first bar defines the 100% baseline: no carried-in return
             if tq["dates"]:
-                tq["bhret"][0]=0.0; tq["stret"][0]=0.0; tq["bhqqq"][0]=0.0; qsr1[0]=0.0; qsrj[0]=0.0
-            timeline_qqq=tq; timeline_qqq_v1={"pos":qpos1,"stret":qsr1}
-            timeline_qqq_alt={"V":qVj,"pos":qposj,"stret":qsrj}
-            log(f"  QQQ variant: {len(tq['dates'])} daily points from {tq['dates'][0] if tq['dates'] else 'n/a'}")
-
-            # NOTE: we deliberately do NOT trim the S&P timeline to 1986. Now that Yahoo
-            # gives daily ^GSPC back to 1928, the S&P daily block keeps its full depth
-            # (monthly pre-1928 + daily from 1929, once credit gauges exist). Only the QQQ
-            # views are trimmed to 1986, since the Nasdaq-100 has no earlier history.
-            # The S&P daily era begins at the SPLICE date set above.
-            log(f"  S&P daily block kept full depth from {SPLICE.strftime('%Y-%m')}; "
-                f"QQQ views trimmed to {START}")
+                tq["bhret"][0] = 0.0; tq["stret"][0] = 0.0; tq["bhqqq"][0] = 0.0
+            timeline_qqq = tq
+            _off = sum(1 for p in tq["pos"] if p == 0)
+            log(f"  QQQ variant: {len(tq['dates'])} daily pts from {tq['dates'][0]} "
+                f"(daily 8/15 rule, risk-off {_off/len(tq['pos'])*100:.0f}%)")
         else:
-            log(f"  QQQ variant DROPPED: only {len(tq['dates'])} points built.")
-            log(f"    ndx rows={len(ndx)} ext rows={len(ext[ext.index>=S85])} "
-                f"Pm months={len(Pm.index)} Pm range={Pm.index.min()}..{Pm.index.max()}")
+            log(f"  QQQ variant DROPPED: only {len(tq['dates'])} points "
+                f"(ndx rows={len(ndx)}, Vm months={len(Vm.index)}).")
 except Exception as e:
     import traceback
     log(f"  QQQ variant FAILED: {type(e).__name__}: {e}")
@@ -609,8 +609,6 @@ data["thresholds"] = {"V": V_THR, "T": T_THR}
 data["maCounter"] = ma_counter
 data["timeline_v1"] = timeline_v1
 data["timeline_alt"] = timeline_alt
-if timeline_qqq_v1: data["timeline_qqq_v1"] = timeline_qqq_v1
-if timeline_qqq_alt: data["timeline_qqq_alt"] = timeline_qqq_alt
 with open("data.json","w",encoding="utf-8") as f:
     json.dump(data, f, separators=(",",":"), ensure_ascii=False)
 
