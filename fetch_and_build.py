@@ -341,7 +341,7 @@ d=d.dropna(subset=["V","T","tr","ma10"])
 # off the V>=0.66 cliff (where drawdown jumps to -39%) and is where the vulnerability gate
 # actually discriminates (1.9x lift on severe outcomes vs 1.1x at 0.62).
 V_THR = 0.54
-T_THR = 0.65
+T_THR = 0.70
 Ts,Vs,px,ma=d["T"].values,d["V"].values,d["px"].values,d["ma10"].values
 Vs_alt=d["V_alt"].values
 def make_pos(mode, Vv=None):
