@@ -393,10 +393,13 @@ if len(sp_daily) > 250:
     DY=pd.Series((sh["Dividend"]/sh["SP500"]).values,index=sh.index.to_period("M"))
     prev=None
     # ---- DAILY STATE MACHINE (final rule) ----
-    # EXIT promptly when monthly V>=thr AND monthly T>=thr AND price<200dMA.
-    # RE-ENTER after price closes above the 200dMA for RE_DAYS consecutive trading days.
-    # (No exit persistence; the re-entry persistence is what carries the edge.)
-    RE_DAYS = 21
+    # EXIT when monthly V>=thr AND monthly T>=thr AND price has closed below the 200dMA
+    #   for EXIT_DAYS consecutive trading days (short confirmation filters one-day pokes,
+    #   but is fast enough to still leave before a fast plunge like 2018-Q4 runs away).
+    # RE-ENTER after price closes above the 200dMA for RE_DAYS consecutive trading days
+    #   (the confirmation that filters bear-market rallies).
+    EXIT_DAYS = 8
+    RE_DAYS = 15
     dstate="in"; days_above=0; days_below=0
     for dte,pxv in dd.items():
         per=dte.to_period("M")
@@ -413,7 +416,7 @@ if len(sp_daily) > 250:
         vlast = vv if vv is not None else (tl_V[-1] if tl_V else 0)
         tlast = tv if tv is not None else (tl_T[-1] if tl_T else 0)
         if dstate=="in":
-            if mav is not None and vlast>=V_THR and tlast>=T_THR and pxv<mav:
+            if mav is not None and vlast>=V_THR and tlast>=T_THR and days_below>=EXIT_DAYS:
                 dstate="out"
         else:
             if mav is not None and days_above>=RE_DAYS:
@@ -434,7 +437,7 @@ if len(sp_daily) > 250:
         prev=pxv
     # expose the current MA-streak so the page can show the counter/alert
     globals()["MA_STREAK"] = {"above": days_above, "below": days_below,
-                              "state": dstate, "re_days": RE_DAYS}
+                              "state": dstate, "re_days": RE_DAYS, "exit_days": EXIT_DAYS}
 timeline={"dates":tl_dates,"V":tl_V,"T":tl_T,"px":tl_px,"ma":tl_ma,"pos":tl_pos,"bhret":tl_bh,"stret":tl_sr}
 timeline_v1={"pos":tl_pos_v1,"stret":tl_sr_v1}
 timeline_alt={"V":tl_V_j,"pos":tl_pos_j,"stret":tl_sr_j}
@@ -531,7 +534,7 @@ except Exception as e:
 
 # ---------- daily price series + 200-day MA + mapped position (recent window) ----------
 priceSeries={"dates":[],"px":[],"ma":[],"pos":[]}
-ma_counter={"above":0,"below":0,"state":"in","re_days":21,"triggered":False}
+ma_counter={"above":0,"below":0,"state":"in","re_days":15,"exit_days":8,"triggered":False}
 if len(sp_daily) > 250:
     ma200 = sp_daily.rolling(200).mean()
     cutoff = sp_daily.index[-1] - pd.DateOffset(months=18)
@@ -548,7 +551,7 @@ if len(sp_daily) > 250:
     if "MA_STREAK" in globals():
         s=globals()["MA_STREAK"]
         ma_counter={"above":s["above"],"below":s["below"],"state":s["state"],
-                    "re_days":s["re_days"],
+                    "re_days":s["re_days"],"exit_days":s.get("exit_days",8),
                     # "triggered" = currently risk-off (exit fired, waiting for re-entry)
                     "triggered": s["state"]=="out"}
 else:
