@@ -398,7 +398,7 @@ if len(sp_daily) > 250:
     #   but is fast enough to still leave before a fast plunge like 2018-Q4 runs away).
     # RE-ENTER after price closes above the 200dMA for RE_DAYS consecutive trading days
     #   (the confirmation that filters bear-market rallies).
-    EXIT_DAYS = 8
+    EXIT_DAYS = 1
     RE_DAYS = 15
     dstate="in"; days_above=0; days_below=0
     for dte,pxv in dd.items():
@@ -480,7 +480,7 @@ try:
         # ENTER after QQQ closes above its own 200-day MA for RE_DAYS consecutive days.
         # Keying the trend leg to QQQ (not the S&P) is what catches the Nasdaq-specific
         # collapses (2000-02, 2008) and holds this drawdown near the S&P strategy's.
-        EXIT_DAYS = 8; RE_DAYS = 15
+        EXIT_DAYS = 1; RE_DAYS = 15
         tq = {"dates":[],"V":[],"T":[],"px":[],"ma":[],"pos":[],"bhret":[],"stret":[],"bhqqq":[]}
         dstate = "in"; days_above = 0; days_below = 0; prev_q = None; vlast = 0.0; tlast = 0.0
         for dte in ext.index[ext.index >= S85]:
@@ -534,7 +534,7 @@ except Exception as e:
 
 # ---------- daily price series + 200-day MA + mapped position (recent window) ----------
 priceSeries={"dates":[],"px":[],"ma":[],"pos":[]}
-ma_counter={"above":0,"below":0,"state":"in","re_days":15,"exit_days":8,"triggered":False}
+ma_counter={"above":0,"below":0,"state":"in","re_days":15,"exit_days":1,"triggered":False}
 if len(sp_daily) > 250:
     ma200 = sp_daily.rolling(200).mean()
     cutoff = sp_daily.index[-1] - pd.DateOffset(months=18)
@@ -551,7 +551,7 @@ if len(sp_daily) > 250:
     if "MA_STREAK" in globals():
         s=globals()["MA_STREAK"]
         ma_counter={"above":s["above"],"below":s["below"],"state":s["state"],
-                    "re_days":s["re_days"],"exit_days":s.get("exit_days",8),
+                    "re_days":s["re_days"],"exit_days":s.get("exit_days",1),
                     # "triggered" = currently risk-off (exit fired, waiting for re-entry)
                     "triggered": s["state"]=="out"}
 else:
