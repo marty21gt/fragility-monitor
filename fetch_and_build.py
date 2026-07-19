@@ -542,32 +542,42 @@ except Exception as e:
     log(f"  QQQ variant FAILED: {type(e).__name__}: {e}")
     log("  " + traceback.format_exc().replace("\n", "\n  "))
 
-# ---------- daily price series + 200-day MA + mapped position (recent window) ----------
+# ---------- trend panel: QQQ (the traded vehicle) vs its OWN 200-day MA ----------
 priceSeries={"dates":[],"px":[],"ma":[],"pos":[]}
 ma_counter={"above":0,"below":0,"state":"in","re_days":15,"exit_days":1,"triggered":False}
-if len(sp_daily) > 250:
+if timeline_qqq and len(timeline_qqq["dates"]) > 250:
+    qd=timeline_qqq["dates"]; qpx=timeline_qqq["px"]; qma=timeline_qqq["ma"]; qpos=timeline_qqq["pos"]
+    tailN = 378   # ~18 months of trading days for the chart window
+    priceSeries = {"dates":qd[-tailN:], "px":qpx[-tailN:], "ma":qma[-tailN:], "pos":qpos[-tailN:]}
+    # trailing streak on QQQ's own price vs its own 200-day line
+    above=below=0; k=len(qpx)-1
+    while k>=0 and qma[k] is None: k-=1
+    if k>=0:
+        cur_above = qpx[k] >= qma[k]
+        while k>=0 and qma[k] is not None and (qpx[k] >= qma[k]) == cur_above:
+            if cur_above: above+=1
+            else: below+=1
+            k-=1
+    state = "in" if qpos[-1]==1 else "out"
+    ma_counter = {"above":above,"below":below,"state":state,"re_days":15,"exit_days":1,
+                  "triggered": state=="out"}
+    log(f"  trend panel -> QQQ own 200-day: {'above' if above else 'below'} {above or below} days, state {state}")
+elif len(sp_daily) > 250:
+    # fallback: S&P, only if the QQQ series is unavailable this run
     ma200 = sp_daily.rolling(200).mean()
     cutoff = sp_daily.index[-1] - pd.DateOffset(months=18)
-    # map the daily timeline positions (the real rule) onto these dates
     tl_map = dict(zip(timeline["dates"], timeline["pos"]))
     for dte in sp_daily.index[sp_daily.index >= cutoff]:
         pxv = float(sp_daily.loc[dte]); mav = ma200.loc[dte]
         ds = dte.strftime("%Y-%m-%d")
-        priceSeries["dates"].append(ds)
-        priceSeries["px"].append(round(pxv, 1))
+        priceSeries["dates"].append(ds); priceSeries["px"].append(round(pxv, 1))
         priceSeries["ma"].append(round(float(mav), 1) if pd.notna(mav) else None)
         priceSeries["pos"].append(int(tl_map.get(ds, 1)))
-    # the live counter comes straight from the daily state machine
     if "MA_STREAK" in globals():
-        s=globals()["MA_STREAK"]
-        ma_counter={"above":s["above"],"below":s["below"],"state":s["state"],
-                    "re_days":s["re_days"],"exit_days":s.get("exit_days",1),
-                    # "triggered" = currently risk-off (exit fired, waiting for re-entry)
-                    "triggered": s["state"]=="out"}
-else:
-    tailN = 72
-    priceSeries = {"dates":timeline["dates"][-tailN:], "px":timeline["px"][-tailN:],
-                   "ma":timeline["ma"][-tailN:], "pos":timeline["pos"][-tailN:]}
+        s2=globals()["MA_STREAK"]
+        ma_counter={"above":s2["above"],"below":s2["below"],"state":s2["state"],
+                    "re_days":s2["re_days"],"exit_days":s2.get("exit_days",1),
+                    "triggered": s2["state"]=="out"}
 
 # ---------- current live gauges (richer set for the snapshot) ----------
 def latest_pct(series, invert=False, mom=None):
