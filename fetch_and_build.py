@@ -533,7 +533,7 @@ try:
             timeline_qqq = tq
             _off = sum(1 for p in tq["pos"] if p == 0)
             log(f"  QQQ variant: {len(tq['dates'])} daily pts from {tq['dates'][0]} "
-                f"(daily 8/15 rule, risk-off {_off/len(tq['pos'])*100:.0f}%)")
+                f"(daily {EXIT_DAYS}/{RE_DAYS} rule, risk-off {_off/len(tq['pos'])*100:.0f}%)")
         else:
             log(f"  QQQ variant DROPPED: only {len(tq['dates'])} points "
                 f"(ndx rows={len(ndx)}, Vm months={len(Vm.index)}).")
@@ -684,7 +684,7 @@ if os.environ.get("DAILY_VT","0") == "1":
 
     # ---- BUG-GATE: daily nowcast at each month-end vs the monthly gauge (should be close,
     #      not exact -- daily close vs Shiller monthly-average price) ----
-    me_V = Vd.resample("M").last(); me_T = Td.resample("M").last()
+    me_V = Vd.resample("ME").last(); me_T = Td.resample("ME").last()
     log("  reconciliation (daily nowcast vs monthly gauge, last 8 months):")
     for mp in list(d.index[-8:]):
         ts = pd.Timestamp(mp)
