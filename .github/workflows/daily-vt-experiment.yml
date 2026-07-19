@@ -1,0 +1,37 @@
+name: Daily VT experiment
+
+# Manual only. Runs the fenced DAILY_VT branch with full FRED data and prints the
+# reconciliation + result to the log. It does NOT commit anything, so production
+# data.json / the live dashboard are never touched by this run.
+on:
+  workflow_dispatch:
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Mirror the install line from your existing update-fragility.yml so deps match.
+      - name: Install dependencies
+        run: pip install pandas numpy requests yfinance openpyxl lxml
+
+      - name: Run daily-VT experiment (DAILY_VT=1, no commit)
+        env:
+          DAILY_VT: "1"
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python fetch_and_build.py
+
+      # Grab the experiment output so you can download it; production data.json is
+      # produced in the runner but never pushed, because there is no git commit step.
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-vt-result
+          path: data_daily_vt.json
+          if-no-files-found: warn
