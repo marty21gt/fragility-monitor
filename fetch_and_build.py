@@ -401,10 +401,14 @@ if len(sp_daily) > 250:
     EXIT_DAYS = 1
     RE_DAYS = 15
     dstate="in"; days_above=0; days_below=0
+    prev_pos=1; dec_v=0.0; dec_t=0.0   # LOOK-AHEAD FIX
     for dte,pxv in dd.items():
-        per=dte.to_period("M")
+        per=dte.to_period("M"); per_prev=per-1
         vv=_num(Vm.get(per),3); tv=_num(Tm.get(per),3)
         vvj=_num(VmJ.get(per),3)
+        vdec=_num(Vm.get(per_prev),3); tdec=_num(Tm.get(per_prev),3)   # prior completed month (decision)
+        if vdec is not None: dec_v=vdec
+        if tdec is not None: dec_t=tdec
         divy=_num(DY.get(per),6) or 0.0
         stira=_num(Sm.get(per),4); stira=4.0 if stira is None else stira
         mav=_num(ma200.get(dte),1)
@@ -416,25 +420,26 @@ if len(sp_daily) > 250:
         vlast = vv if vv is not None else (tl_V[-1] if tl_V else 0)
         tlast = tv if tv is not None else (tl_T[-1] if tl_T else 0)
         if dstate=="in":
-            if mav is not None and vlast>=V_THR and tlast>=T_THR and days_below>=EXIT_DAYS:
+            if mav is not None and dec_v>=V_THR and dec_t>=T_THR and days_below>=EXIT_DAYS:
                 dstate="out"
         else:
             if mav is not None and days_above>=RE_DAYS:
                 dstate="in"
         pv = 1 if dstate=="in" else 0
         bh = 0.0 if prev is None else (pxv/prev-1)+divy/252.0
-        sr = bh if pv==1 else stira/100/252
+        sr = bh if prev_pos==1 else stira/100/252   # execute at next close
         tl_dates.append(dte.strftime("%Y-%m-%d"))
         tl_V.append(round(vv,3) if vv is not None else tl_V[-1])
         tl_T.append(round(tv,3) if tv is not None else tl_T[-1])
         tl_px.append(round(float(pxv),1))
         tl_ma.append(round(mav,1) if mav is not None else None)
-        tl_pos.append(pv); tl_bh.append(round(bh,5)); tl_sr.append(round(sr,5))
-        tl_pos_v1.append(pv); tl_sr_v1.append(round(sr,5))          # v1 retired -> mirror base
-        srj = bh if pv==1 else stira/100/252
+        tl_pos.append(prev_pos); tl_bh.append(round(bh,5)); tl_sr.append(round(sr,5))
+        tl_pos_v1.append(prev_pos); tl_sr_v1.append(round(sr,5))          # v1 retired -> mirror base
+        srj = bh if prev_pos==1 else stira/100/252
         tl_V_j.append(round(vvj,3) if vvj is not None else tl_V_j[-1])
-        tl_pos_j.append(pv); tl_sr_j.append(round(srj,5))           # alt retired -> mirror base
+        tl_pos_j.append(prev_pos); tl_sr_j.append(round(srj,5))           # alt retired -> mirror base
         prev=pxv
+        prev_pos=pv   # carry today's decision to next-close execution
     # expose the current MA-streak so the page can show the counter/alert
     globals()["MA_STREAK"] = {"above": days_above, "below": days_below,
                               "state": dstate, "re_days": RE_DAYS, "exit_days": EXIT_DAYS}
@@ -483,13 +488,17 @@ try:
         EXIT_DAYS = 1; RE_DAYS = 15
         tq = {"dates":[],"V":[],"T":[],"px":[],"ma":[],"pos":[],"bhret":[],"stret":[],"bhqqq":[]}
         dstate = "in"; days_above = 0; days_below = 0; prev_q = None; vlast = 0.0; tlast = 0.0
+        prev_pos = 1; dec_v = 0.0; dec_t = 0.0   # LOOK-AHEAD FIX: prior-month V/T decision + next-close execution
         for dte in ext.index[ext.index >= S85]:
             r = nret.loc[dte]
             if pd.isna(r): continue
-            per = dte.to_period("M")
-            vv = _sf(Vm.get(per)); tv = _sf(Tm.get(per))
+            per = dte.to_period("M"); per_prev = per - 1
+            vv = _sf(Vm.get(per)); tv = _sf(Tm.get(per))            # current month (display only)
             if vv is not None: vlast = vv
             if tv is not None: tlast = tv
+            vdec = _sf(Vm.get(per_prev)); tdec = _sf(Tm.get(per_prev))  # prior completed month (decision)
+            if vdec is not None: dec_v = vdec
+            if tdec is not None: dec_t = tdec
             sti = _sf(Sm.get(per)); sti = 4.0 if sti is None else sti
             cash = sti / 100 / 252
             mav = nma.loc[dte]; pxv = float(ext.loc[dte])
@@ -497,21 +506,22 @@ try:
                 if pxv > mav: days_above += 1; days_below = 0
                 elif pxv < mav: days_below += 1; days_above = 0
             if dstate == "in":
-                if pd.notna(mav) and vlast >= V_THR and tlast >= T_THR and days_below >= EXIT_DAYS:
+                if pd.notna(mav) and dec_v >= V_THR and dec_t >= T_THR and days_below >= EXIT_DAYS:
                     dstate = "out"
             else:
                 if pd.notna(mav) and days_above >= RE_DAYS:
                     dstate = "in"
             pos_i = 1 if dstate == "in" else 0
             qbh = float(r) + QDY / 252
-            st = qbh if pos_i == 1 else cash
+            st = qbh if prev_pos == 1 else cash   # execute at next close
             bench = sp_bench(prev_q, dte); prev_q = dte
             tq["dates"].append(dte.strftime("%Y-%m-%d"))
             tq["V"].append(round(vlast, 3)); tq["T"].append(round(tlast, 3))
             tq["px"].append(round(pxv, 1))
             tq["ma"].append(round(float(mav), 1) if pd.notna(mav) else None)
-            tq["pos"].append(pos_i); tq["bhret"].append(round(bench, 5))
+            tq["pos"].append(prev_pos); tq["bhret"].append(round(bench, 5))
             tq["stret"].append(round(st, 5)); tq["bhqqq"].append(round(qbh, 5))
+            prev_pos = pos_i
         if len(tq["dates"]) > 250:
             START = "1986-01-01"
             qkeep = [i for i, ds in enumerate(tq["dates"]) if ds >= START]
@@ -640,3 +650,93 @@ try:
 except Exception as e:
     log(f"  analysis.json skipped: {e}")
 log(f"Wrote data.json  |  V-gauges {len(curV)}  T-gauges {len(curT)}  |  daily pts {len(priceSeries['dates'])}  |  timeline {len(timeline['dates'])} points (daily from 1985)")
+
+# =====================================================================================
+# EXPERIMENTAL BRANCH -- DAILY V/T NOWCAST   (FENCED: runs only when env DAILY_VT=1)
+# -------------------------------------------------------------------------------------
+# Recomputes V and T EVERY TRADING DAY from daily data: daily Moody's credit yields
+# (FRED DBAA/DAAA), daily S&P returns for the vol + momentum legs, and daily price over
+# last-known Shiller 10-yr earnings for CAPE. Each leg is ranked against its OWN expanding
+# daily history (point-in-time, 2-yr burn-in), so the blend stays on the same 0-1 scale
+# and the 0.54/0.70 thresholds keep their meaning. Then it runs the locked QQQ strategy
+# (200-day, exit-1, re-15, V>=0.54, T>=0.70) with NEXT-CLOSE execution.
+# Writes ONLY data_daily_vt.json. Never touches data.json. Off by default.
+# =====================================================================================
+if os.environ.get("DAILY_VT","0") == "1":
+  try:
+    log("DAILY_VT=1 -> daily-nowcast experiment (writes data_daily_vt.json only)")
+    spx = sp_daily.dropna()
+    dbaa, daaa = fred("DBAA"), fred("DAAA")                      # daily Moody's Baa/Aaa yields
+    dspread = (dbaa - daaa).dropna().reindex(spx.index).ffill()
+    e10 = (sh["SP500"] / sh["PE10"]).replace([np.inf, -np.inf], np.nan).dropna()   # 10y-avg earnings (monthly)
+    e10_d = e10.reindex(spx.index.union(e10.index)).sort_index().ffill().reindex(spx.index)
+    cape_d = spx / e10_d
+    ret_d  = spx.pct_change()
+    rvol_d = ret_d.rolling(252).std() * np.sqrt(252)
+    volup_d = rvol_d / rvol_d.rolling(252).min() - 1
+    mom3_d = spx / spx.shift(63) - 1
+    sm_d   = dspread - dspread.shift(63)
+    B = 504   # ~2yr daily burn-in for point-in-time percentiles
+    capef = epct(cape_d, B); volsup = 1 - epct(rvol_d, B); comp = 1 - epct(dspread, B)
+    volupP = epct(volup_d, B); negmom = epct(-mom3_d, B); smP = epct(sm_d, B)
+    Vd = pd.DataFrame({"a":capef,"b":volsup,"c":comp}).apply(lambda r: blend(list(r.values)), axis=1)
+    Td = pd.DataFrame({"a":volupP,"b":negmom,"c":smP}).apply(lambda r: blend(list(r.values)), axis=1)
+
+    # ---- BUG-GATE: daily nowcast at each month-end vs the monthly gauge (should be close,
+    #      not exact -- daily close vs Shiller monthly-average price) ----
+    me_V = Vd.resample("M").last(); me_T = Td.resample("M").last()
+    log("  reconciliation (daily nowcast vs monthly gauge, last 8 months):")
+    for mp in list(d.index[-8:]):
+        ts = pd.Timestamp(mp)
+        dvV = me_V.reindex([ts], method="nearest").iloc[0]
+        dvT = me_T.reindex([ts], method="nearest").iloc[0]
+        log(f"    {mp.strftime('%Y-%m')}:  V daily {dvV:.2f} / monthly {d['V'].get(mp,float('nan')):.2f}"
+            f"   |   T daily {dvT:.2f} / monthly {d['T'].get(mp,float('nan')):.2f}")
+
+    # ---- run locked QQQ strategy on DAILY V/T, next-close execution ----
+    exd = ext[ext.index >= pd.Timestamp("1986-01-01")]
+    Vq = Vd.reindex(exd.index).ffill().values
+    Tq = Td.reindex(exd.index).ffill().values
+    maq = nma.reindex(exd.index).values
+    rq  = nret.reindex(exd.index).values
+    pxq = exd.values
+    stir_m = pd.Series(d["stir"].values, index=d.index.to_period("M"))
+    QDY = 0.006
+    st_state="in"; na=0; nb=0; prev_pos=1; wealth=1.0; peak=1.0; mdd=0.0; trips=0; rets=[]; offdays=0
+    dts = []
+    for i, dte in enumerate(exd.index):
+        r = rq[i]
+        if np.isnan(r): continue
+        mav = maq[i]; pxv = pxq[i]; v = Vq[i]; t = Tq[i]
+        if not np.isnan(mav):
+            if pxv > mav: na += 1; nb = 0
+            elif pxv < mav: nb += 1; na = 0
+        if st_state == "in":
+            if (not np.isnan(mav)) and (not np.isnan(v)) and (not np.isnan(t)) and v >= V_THR and t >= T_THR and nb >= 1:
+                st_state = "out"
+        else:
+            if (not np.isnan(mav)) and na >= 15:
+                st_state = "in"
+        pos_i = 1 if st_state == "in" else 0
+        csh = (float(stir_m.get(dte.to_period("M"), 4.0) or 4.0)) / 100 / 252
+        qbh = float(r) + QDY / 252
+        rr = qbh if prev_pos == 1 else csh
+        if prev_pos == 1 and pos_i == 0: trips += 1
+        rets.append(rr); wealth *= (1 + rr); peak = max(peak, wealth); mdd = min(mdd, wealth/peak - 1)
+        if prev_pos == 0: offdays += 1
+        prev_pos = pos_i
+    rets = np.array(rets); N = len(rets)
+    cagr = wealth ** (252/N) - 1
+    ann = rets.std() * np.sqrt(252)
+    sharpe = (cagr - float(stir_m.iloc[-1] or 4)/100) / ann if ann else float("nan")
+    log(f"  DAILY-VT QQQ RESULT:  total {(wealth-1)*100:,.0f}%   CAGR {cagr*100:.1f}%   "
+        f"maxDD {mdd*100:.0f}%   Sharpe {sharpe:.2f}   round-trips {trips}   time-off {offdays/N*100:.0f}%")
+    log(f"  (compare monthly-gauge production QQQ: ~80,000% / ~18% CAGR / -40% / ~9 trips)")
+    with open("data_daily_vt.json","w",encoding="utf-8") as f:
+        json.dump({"cagr":cagr,"maxDD":mdd,"total":wealth-1,"sharpe":sharpe,"trips":trips,
+                   "time_off":offdays/N,"note":"daily V/T nowcast experiment"}, f)
+    log("  wrote data_daily_vt.json")
+  except Exception as e:
+    import traceback
+    log(f"  DAILY_VT experiment FAILED (production data.json unaffected): {type(e).__name__}: {e}")
+    log("  " + traceback.format_exc().replace("\n","\n  "))
