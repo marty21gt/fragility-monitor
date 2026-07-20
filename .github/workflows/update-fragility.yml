@@ -1,10 +1,11 @@
 name: Update Fragility Data
 
-# Runs automatically at 13:00 UTC,
-# and whenever you click "Run workflow" manually.
+# Runs automatically at 22:00 UTC on weekdays -- that's 5pm ET in winter / 6pm ET in
+# summer, safely after the 4pm ET close, so it captures each trading day's closing price.
+# Also runs whenever you click "Run workflow" manually.
 on:
   schedule:
-  - cron: "0 13 * * *"      # every day at 13:00 UTC
+  - cron: "0 22 * * 1-5"    # weekdays 22:00 UTC = 5pm EST / 6pm EDT (after the close)
   workflow_dispatch:
 
 permissions:
