@@ -626,6 +626,14 @@ data = {
 }
 if timeline_qqq: data["timeline_qqq"] = timeline_qqq
 data["thresholds"] = {"V": V_THR, "T": T_THR}
+# acting gate: the PRIOR completed month's V/T is the frozen reading the strategy trades on
+# during the current (incomplete) month -- this is what the user must actually watch (look-ahead fix).
+try:
+    _vp=float(d["V"].iloc[-2]); _tp=float(d["T"].iloc[-2]); _mp=d.index[-2].strftime("%B %Y")
+    data["acting_gate"]={"month":_mp,"V":round(_vp,2),"T":round(_tp,2),
+                         "V_ok": _vp>=V_THR, "T_ok": _tp>=T_THR, "armed": (_vp>=V_THR and _tp>=T_THR)}
+except Exception as _e:
+    log(f"  acting_gate skipped: {_e}")
 data["maCounter"] = ma_counter
 data["timeline_v1"] = timeline_v1
 data["timeline_alt"] = timeline_alt
