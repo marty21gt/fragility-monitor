@@ -750,10 +750,16 @@ if os.environ.get("DAILY_VT","0") == "1":
     log(f"  DAILY-VT QQQ RESULT:  total {(wealth-1)*100:,.0f}%   CAGR {cagr*100:.1f}%   "
         f"maxDD {mdd*100:.0f}%   Sharpe {sharpe:.2f}   round-trips {trips}   time-off {offdays/N*100:.0f}%")
     log(f"  (compare monthly-gauge production QQQ: ~80,000% / ~18% CAGR / -40% / ~9 trips)")
+    Vd_al = Vd.reindex(exd.index).ffill()
+    Td_al = Td.reindex(exd.index).ffill()
+    out = {"cagr":cagr,"maxDD":mdd,"total":wealth-1,"sharpe":sharpe,"trips":trips,
+           "time_off":offdays/N,"note":"daily V/T nowcast experiment",
+           "dates":[ts.strftime("%Y-%m-%d") for ts in exd.index],
+           "Vd":[None if pd.isna(x) else round(float(x),4) for x in Vd_al.values],
+           "Td":[None if pd.isna(x) else round(float(x),4) for x in Td_al.values]}
     with open("data_daily_vt.json","w",encoding="utf-8") as f:
-        json.dump({"cagr":cagr,"maxDD":mdd,"total":wealth-1,"sharpe":sharpe,"trips":trips,
-                   "time_off":offdays/N,"note":"daily V/T nowcast experiment"}, f)
-    log("  wrote data_daily_vt.json")
+        json.dump(out, f)
+    log(f"  wrote data_daily_vt.json  ({len(out['dates'])} daily V/T points)")
   except Exception as e:
     import traceback
     log(f"  DAILY_VT experiment FAILED (production data.json unaffected): {type(e).__name__}: {e}")
