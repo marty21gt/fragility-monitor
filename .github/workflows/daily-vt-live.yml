@@ -8,7 +8,6 @@ on:
     - cron: "10 22 * * 1-5"     # 22:10 UTC (~6:10pm ET) Mon-Fri, after close
   workflow_dispatch:             # manual trigger too
 
-# allow the job to push a commit back
 permissions:
   contents: write
 
@@ -33,14 +32,13 @@ jobs:
 
       - name: Commit daily_vt.json if it changed
         run: |
-          # publish the experiment output under a stable name the dashboard reads
           cp data_daily_vt.json daily_vt.json
-          if git diff --quiet daily_vt.json; then
+          git config user.name  "fragility-bot"
+          git config user.email "fragility-bot@users.noreply.github.com"
+          git add daily_vt.json
+          if git diff --cached --quiet; then
             echo "no change in daily_vt.json — skipping commit"
           else
-            git config user.name  "fragility-bot"
-            git config user.email "fragility-bot@users.noreply.github.com"
-            git add daily_vt.json
             git commit -m "Update daily_vt.json $(date -u +%Y-%m-%d)"
             git push
           fi
