@@ -757,6 +757,49 @@ if os.environ.get("DAILY_VT","0") == "1":
            "dates":[ts.strftime("%Y-%m-%d") for ts in exd.index],
            "Vd":[None if pd.isna(x) else round(float(x),4) for x in Vd_al.values],
            "Td":[None if pd.isna(x) else round(float(x),4) for x in Td_al.values]}
+    # ---- ALSO emit S&P daily fragility feed for the internal S&P monitor page ----
+    # Same daily V/T we just computed (they are S&P/broad-market by construction),
+    # plus S&P price, its own 200-day, and the consecutive-days-above counter for the
+    # 15-day re-entry rule. Decision reading = prior completed month's monthly V/T.
+    sp_ma200 = spx.rolling(200).mean()
+    above = spx > sp_ma200
+    grp = (above != above.shift()).cumsum()
+    run_len = above.groupby(grp).cumcount() + 1
+    days_above = run_len.where(above, 0).astype(int)   # consecutive closes above 200-day
+    per_now  = d.index[-1]        # latest (in-progress) month
+    per_prev = d.index[-2]        # prior completed month -> the decision reading
+    def _sf(x):
+        try:    return round(float(x), 3)
+        except: return None
+    agV, agT = _sf(d["V"].get(per_prev)), _sf(d["T"].get(per_prev))
+    W = 400   # ~18 months of daily context is plenty for the 200-day chart + crosshair
+    Vd_a = Vd.reindex(spx.index); Td_a = Td.reindex(spx.index)
+    sp_out = {
+        "as_of": str(spx.index[-1].date()),
+        "thresholds": {"V": V_THR, "T": T_THR},
+        "acting_gate": {                      # prior completed month -> de-risk decision
+            "month": per_prev.strftime("%B %Y"),
+            "V": agV, "T": agT,
+            "V_ok": bool(agV is not None and agV >= V_THR),
+            "T_ok": bool(agT is not None and agT >= T_THR),
+            "danger": bool(agV is not None and agT is not None and agV >= V_THR and agT >= T_THR),
+        },
+        "current_month": {                    # in-progress monthly gauge (context)
+            "month": per_now.strftime("%B %Y"),
+            "V": _sf(d["V"].get(per_now)), "T": _sf(d["T"].get(per_now)),
+        },
+        "days_above_200": int(days_above.iloc[-1]),
+        "below_200": bool(spx.iloc[-1] < sp_ma200.iloc[-1]),
+        "dates": [x.strftime("%Y-%m-%d") for x in spx.index[-W:]],
+        "px":  [round(float(x), 2) for x in spx.values[-W:]],
+        "ma":  [None if pd.isna(x) else round(float(x), 2) for x in sp_ma200.values[-W:]],
+        "V":   [None if pd.isna(x) else round(float(x), 3) for x in Vd_a.values[-W:]],
+        "T":   [None if pd.isna(x) else round(float(x), 3) for x in Td_a.values[-W:]],
+    }
+    with open("sp_daily.json", "w", encoding="utf-8") as f:
+        json.dump(sp_out, f)
+    log(f"  wrote sp_daily.json (S&P daily fragility; days above 200-day = {sp_out['days_above_200']}, "
+        f"acting gate {per_prev.strftime('%Y-%m')} V {agV} / T {agT})")
     with open("data_daily_vt.json","w",encoding="utf-8") as f:
         json.dump(out, f)
     log(f"  wrote data_daily_vt.json  ({len(out['dates'])} daily V/T points)")
