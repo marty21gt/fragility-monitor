@@ -822,11 +822,8 @@ if os.environ.get("CURVE", "0") == "1":
         t10y2y = fred("T10Y2Y")   # 10y-2y spread, DAILY, 1976+
         slope_m = (gs10 - tb3ms).dropna()          # monthly slope back to 1953
 
-        # --- household equity allocation (VERIFY THESE IDS ON FRED FIRST) ---
-        # equity share of household financial assets; quarterly, 1952+
-        hh_eq  = fred("BOGZ1FL153064486Q")   # households: corporate equities, asset
-        hh_tot = fred("BOGZ1FL152000005Q")   # households: total financial assets
-        alloc  = (hh_eq / hh_tot).dropna() if len(hh_eq) and len(hh_tot) else pd.Series(dtype=float)
+        # --- household equity allocation: already a % of financial assets, no denominator needed ---
+        alloc = fred("BOGZ1FL153064486Q")          # quarterly, Z.1
 
         def ser(s):
             s = s.dropna()
