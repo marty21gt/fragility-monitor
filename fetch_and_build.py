@@ -807,3 +807,47 @@ if os.environ.get("DAILY_VT","0") == "1":
     import traceback
     log(f"  DAILY_VT experiment FAILED (production data.json unaffected): {type(e).__name__}: {e}")
     log("  " + traceback.format_exc().replace("\n","\n  "))
+# ============================================================================
+# EXPERIMENT: yield-curve slope + household equity allocation
+# Fenced like DAILY_VT so it never touches production. Run with CURVE=1.
+# Writes curve_data.json only.  Paste near the end of fetch_and_build.py.
+# ============================================================================
+if os.environ.get("CURVE", "0") == "1":
+    log("CURVE=1 -> yield-curve / allocation experiment (writes curve_data.json only)")
+    try:
+        # --- yield curve: two horizons, long history ---
+        gs10   = fred("GS10")     # 10-yr constant maturity, MONTHLY, 1953+
+        tb3ms  = fred("TB3MS")    # 3-mo T-bill secondary market, MONTHLY, 1934+
+        t10y3m = fred("T10Y3M")   # 10y-3m spread, DAILY, 1982+
+        t10y2y = fred("T10Y2Y")   # 10y-2y spread, DAILY, 1976+
+        slope_m = (gs10 - tb3ms).dropna()          # monthly slope back to 1953
+
+        # --- household equity allocation (VERIFY THESE IDS ON FRED FIRST) ---
+        # equity share of household financial assets; quarterly, 1952+
+        hh_eq  = fred("BOGZ1FL153064486Q")   # households: corporate equities, asset
+        hh_tot = fred("BOGZ1FL152000005Q")   # households: total financial assets
+        alloc  = (hh_eq / hh_tot).dropna() if len(hh_eq) and len(hh_tot) else pd.Series(dtype=float)
+
+        def ser(s):
+            s = s.dropna()
+            return {"dates": [d.strftime("%Y-%m-%d") for d in s.index],
+                    "vals":  [round(float(v), 4) for v in s.values]}
+        out = {
+            "note": "curve/allocation experiment - not used by production",
+            "slope_monthly_gs10_tb3ms": ser(slope_m),
+            "t10y3m_daily":             ser(t10y3m),
+            "t10y2y_daily":             ser(t10y2y),
+            "hh_equity_allocation":     ser(alloc),
+        }
+        with open("curve_data.json", "w", encoding="utf-8") as f:
+            json.dump(out, f)
+        log(f"  wrote curve_data.json  (slope {len(slope_m)} mo from {slope_m.index[0].date() if len(slope_m) else 'n/a'}; "
+            f"t10y3m {len(t10y3m)} daily; alloc {len(alloc)} qtrs)")
+        if len(slope_m):
+            inv = (slope_m < 0)
+            log(f"  slope currently {slope_m.iloc[-1]:.2f}%, inverted in {inv.mean()*100:.0f}% of months since {slope_m.index[0].year}")
+        if len(alloc):
+            log(f"  household equity allocation now {alloc.iloc[-1]*100:.1f}% "
+                f"(percentile {(alloc <= alloc.iloc[-1]).mean()*100:.0f} of its own history)")
+    except Exception as e:
+        log(f"  CURVE experiment FAILED: {e}")
