@@ -637,6 +637,44 @@ except Exception as _e:
 data["maCounter"] = ma_counter
 data["timeline_v1"] = timeline_v1
 data["timeline_alt"] = timeline_alt
+# ---------- FRESHNESS GATE -------------------------------------------------
+# A green run must NEVER publish stale data. The failure this guards against:
+# Yahoo's ^NDX feed lagged ^GSPC by a day, so the QQQ timeline was built one
+# session short while the rest of data.json was current, and the run still
+# exited green. This refuses to write when the published timeline trails the
+# freshest price feed, or when every feed is grossly stale -- turning a silent
+# stale-but-green run into a loud red one you get notified about. Holiday-safe:
+# it compares against the feeds' own dates, not a market calendar. If it fails,
+# nothing is written, data.json keeps its last good value, and a re-run once the
+# feed catches up will pass.
+import sys as _sys
+def _last(_s):
+    try:    return pd.Timestamp(_s.index[-1]).normalize()
+    except Exception: return None
+_sp_last  = _last(sp_daily)
+_ndx_last = _last(ndx) if ("ndx" in globals() and hasattr(ndx, "index")) else None
+_tl_last  = (pd.Timestamp(timeline_qqq["dates"][-1]).normalize()
+             if (timeline_qqq and timeline_qqq.get("dates")) else None)
+_feeds    = [_d for _d in (_sp_last, _ndx_last) if _d is not None]
+_freshest = max(_feeds) if _feeds else None
+_fail = []
+if _tl_last is not None and _freshest is not None and _tl_last < _freshest:
+    _fail.append(f"dashboard timeline {_tl_last.date()} trails freshest feed "
+                 f"{_freshest.date()} (^GSPC {_sp_last.date() if _sp_last else 'n/a'}, "
+                 f"^NDX {_ndx_last.date() if _ndx_last else 'n/a'})")
+_run = pd.Timestamp.utcnow().tz_localize(None).normalize()
+if _freshest is not None and (_run - _freshest).days > 5:
+    _fail.append(f"freshest feed {_freshest.date()} is {(_run - _freshest).days} "
+                 f"days before run date {_run.date()}")
+if _fail:
+    for _m in _fail: log("  FRESHNESS GATE FAILED: " + _m)
+    log("  Refusing to write stale/inconsistent data.json (exit 1). "
+        "Re-run once the feed catches up.")
+    _sys.exit(1)
+log(f"  freshness gate OK: freshest feed "
+    f"{_freshest.date() if _freshest else 'n/a'}, timeline through "
+    f"{_tl_last.date() if _tl_last else 'n/a'}")
+
 with open("data.json","w",encoding="utf-8") as f:
     json.dump(data, f, separators=(",",":"), ensure_ascii=False)
 
