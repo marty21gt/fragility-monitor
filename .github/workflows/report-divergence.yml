@@ -1,0 +1,35 @@
+# .github/workflows/report-divergence.yml
+#
+# On-demand QLD-vs-TQQQ (v3.0 vs v3.1) divergence report. No schedule -- you run
+# it by hand: Actions -> "Divergence report" -> Run workflow. It prints the six
+# summary lines (drift, concentration, |QQQ| correlation, etc.) straight into the
+# run log. Reads divergence.csv; writes nothing and commits nothing.
+#
+# Requires at the repo root: divergence_log.py, reference_backtest.py,
+# data.json, daily_vt.json, divergence.csv
+
+name: Divergence report
+
+on:
+  workflow_dispatch:     # manual button only -- no scheduled runs
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install numpy pandas
+
+      - name: Print the divergence report
+        run: python divergence_log.py report
