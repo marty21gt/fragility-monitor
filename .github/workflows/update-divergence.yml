@@ -1,0 +1,48 @@
+# .github/workflows/update-divergence.yml
+#
+# Standalone tracker for the QLD-vs-TQQQ (v3.0 vs v3.1) implementation edge.
+# Runs on its OWN schedule -- it does not touch your data pipeline. It fires at
+# 23:00 UTC on weekdays, one hour after your 22:00 data job, so the freshly
+# committed data.json / daily_vt.json are already on the branch when it checks
+# out. `divergence_log.py update` is idempotent and self-healing: if the data
+# job is ever late or a day is missed, the next run just backfills it. Nothing
+# to fix by hand.
+#
+# Requires at the repo root (same place as your data files):
+#   reference_backtest.py, data.json, daily_vt.json, divergence_log.py
+
+name: Update divergence log
+
+on:
+  schedule:
+    - cron: "0 23 * * 1-5"   # 23:00 UTC, Mon-Fri. Adjust the hour if you like.
+  workflow_dispatch:          # also lets you run it by hand from the Actions tab
+
+permissions:
+  contents: write             # needed to commit divergence.csv back to the repo
+
+jobs:
+  divergence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install numpy pandas
+
+      - name: Append the latest day(s)
+        run: python divergence_log.py update
+
+      - name: Commit the updated log
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "fragility-bot@users.noreply.github.com"
+          git add divergence.csv
+          git diff --staged --quiet || git commit -m "Update divergence log $(date -u +%Y-%m-%d)"
+          git push
