@@ -3,6 +3,13 @@ name: Update Fragility Data
 # Runs automatically at 22:00 UTC on weekdays -- that's 5pm ET in winter / 6pm ET in
 # summer, safely after the 4pm ET close, so it captures each trading day's closing price.
 # Also runs whenever you click "Run workflow" manually.
+#
+# NOTE: if the freshness gate in fetch_and_build.py starts failing runs because
+# Yahoo hasn't posted the day's ^NDX bar yet (it can lag an hour or two after the
+# close), give the feed more time by moving the schedule later -- e.g. change the
+# cron to "0 1 * * 2-6" (01:00 UTC, ~9pm ET the same trading day). The gate makes
+# a too-early run fail loudly instead of publishing stale data, and a re-run once
+# the feed catches up will pass.
 on:
   schedule:
   - cron: "0 22 * * 1-5"    # weekdays 22:00 UTC = 5pm EST / 6pm EDT (after the close)
@@ -36,5 +43,7 @@ jobs:
           git config user.name "fragility-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data.json analysis.json
-          git commit -m "Update fragility data $(date +%Y-%m-%d)" || echo "No changes to publish."
+          git diff --staged --quiet && { echo "No changes to publish."; exit 0; }
+          git commit -m "Update fragility data $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main    # concurrency-safe: another job may have pushed
           git push
