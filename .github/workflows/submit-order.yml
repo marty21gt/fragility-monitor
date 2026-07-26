@@ -1,0 +1,48 @@
+# .github/workflows/submit-order.yml
+#
+# APPROVE + SUBMIT step -- this is YOUR approval. It only runs when you click
+# "Run workflow" (no schedule). It re-runs every safety check (proposal age,
+# data freshness, market open, positions unchanged, orders match target) and
+# then sends the staged orders to your Alpaca PAPER account. Keys are PAPER
+# keys; the code is locked to the paper endpoint.
+#
+# Timing: your model executes at the next close, so click this near the market
+# close (the orders are DAY market orders, approximating market-on-close).
+
+name: Approve & submit order
+
+on:
+  workflow_dispatch:     # manual button ONLY -- this click is your sign-off
+
+permissions:
+  contents: write
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    env:
+      APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install numpy pandas
+
+      - name: Submit the approved order
+        run: python submit_order.py
+
+      - name: Archive the submitted proposal
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "Submitted order $(date -u +%Y-%m-%d)"
+            git pull --rebase origin main
+            git push
+          fi
