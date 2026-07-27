@@ -1,0 +1,9 @@
+# Python bytecode -- never commit: it's binary, regenerated every run, and
+# causes unmergeable conflicts on git pull --rebase. This is what broke the
+# submit workflows.
+__pycache__/
+*.pyc
+*.pyo
+
+# transient stage output (not a record we need in the repo)
+stage_output.txt
