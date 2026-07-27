@@ -21,6 +21,7 @@ jobs:
   submit:
     runs-on: ubuntu-latest
     env:
+      VEHICLE:             QLD
       APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
       APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
     steps:
