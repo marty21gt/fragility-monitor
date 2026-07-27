@@ -1,0 +1,21 @@
+{
+  "staged_at_utc": "2026-07-27T18:51:01.691838Z",
+  "data_date": "2026-07-24",
+  "vehicle": "TQQQ",
+  "target_exposure": 1.0,
+  "target_weights": {
+    "QQQ": 1.0,
+    "TQQQ": 0.0,
+    "SGOV": 0.0
+  },
+  "equity_at_stage": 100000.0,
+  "positions_at_stage": {},
+  "orders": [
+    {
+      "symbol": "QQQ",
+      "side": "buy",
+      "action": "buy",
+      "notional": 100000.0
+    }
+  ]
+}
