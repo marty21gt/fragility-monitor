@@ -22,6 +22,7 @@ jobs:
   stage:
     runs-on: ubuntu-latest
     env:
+      PYTHONDONTWRITEBYTECODE: "1"
       VEHICLE:             QLD
       APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
       APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
