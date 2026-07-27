@@ -1,0 +1,67 @@
+# .github/workflows/stage-order-v31.yml
+#
+# STAGE step -- runs automatically after the daily signal, computes the
+# rebalance the model wants, and commits it as pending_order.json for your
+# review. It SUBMITS NOTHING. A green run means "nothing to do today"; a red
+# run means "your attention is needed" -- open it to see whether it's a staged
+# trade to approve or a stale-data warning. Keys are PAPER keys; the code is
+# locked to the paper endpoint and cannot touch real money.
+
+name: Stage rebalance order (v3.1)
+
+on:
+  schedule:
+    - cron: "0 23 * * 1-5"    # after your data pipeline updates. Adjust if needed;
+                              # the freshness gate will fail loudly rather than stage stale data.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    env:
+      VEHICLE:             TQQQ
+      APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID_V31 }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY_V31 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install numpy pandas
+
+      - name: Compute the proposal
+        run: |
+          set -o pipefail
+          python stage_order.py | tee stage_output.txt
+
+      - name: Sync the proposal to the repo
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add pending_order.json || true          # stages a new proposal OR its removal
+          if ! git diff --staged --quiet; then
+            git commit -m "Update rebalance proposal $(date -u +%Y-%m-%d)"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No change to proposal state."
+          fi
+
+      - name: Flag if action is needed
+        run: |
+          if [ -f pending_order.json ]; then
+            echo "### Rebalance proposed -- review and approve" >> "$GITHUB_STEP_SUMMARY"
+            echo '```'                                          >> "$GITHUB_STEP_SUMMARY"
+            cat stage_output.txt                                >> "$GITHUB_STEP_SUMMARY"
+            echo '```'                                          >> "$GITHUB_STEP_SUMMARY"
+            echo "A trade is staged. Review it, then run the 'Approve & submit order' workflow."
+            exit 1     # deliberate: turns the run red so GitHub emails you that action is needed
+          else
+            echo "No trade needed today."
+          fi
