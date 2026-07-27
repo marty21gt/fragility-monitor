@@ -1,7 +1,7 @@
 # .github/workflows/stage-order-v31.yml
 #
 # STAGE step -- runs automatically after the daily signal, computes the
-# rebalance the model wants, and commits it as pending_order.json for your
+# rebalance the model wants, and commits it as pending_order_${VEHICLE}.json for your
 # review. It SUBMITS NOTHING. A green run means "nothing to do today"; a red
 # run means "your attention is needed" -- open it to see whether it's a staged
 # trade to approve or a stale-data warning. Keys are PAPER keys; the code is
@@ -44,7 +44,7 @@ jobs:
         run: |
           git config user.name  "fragility-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add pending_order.json || true          # stages a new proposal OR its removal
+          git add pending_order_${VEHICLE}.json || true          # stages a new proposal OR its removal
           if ! git diff --staged --quiet; then
             git commit -m "Update rebalance proposal $(date -u +%Y-%m-%d)"
             git pull --rebase origin main
@@ -55,7 +55,7 @@ jobs:
 
       - name: Flag if action is needed
         run: |
-          if [ -f pending_order.json ]; then
+          if [ -f pending_order_${VEHICLE}.json ]; then
             echo "### Rebalance proposed -- review and approve" >> "$GITHUB_STEP_SUMMARY"
             echo '```'                                          >> "$GITHUB_STEP_SUMMARY"
             cat stage_output.txt                                >> "$GITHUB_STEP_SUMMARY"
