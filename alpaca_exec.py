@@ -19,13 +19,15 @@ import urllib.request, urllib.error
 import numpy as np
 
 # ---- configuration ---------------------------------------------------------
-VEHICLE          = "QLD"      # "QLD" = live v3.0; set "TQQQ" to paper the v3.1 candidate
+VEHICLE          = os.environ.get("VEHICLE", "QLD")   # "QLD" = v3.0; "TQQQ" = v3.1 (set per workflow)
 CASH_TICKER      = "SGOV"     # risk-off / de-levered sleeve (per the v3.1 ETF spec)
+if VEHICLE not in ("QLD", "TQQQ"):
+    raise SystemExit(f"VEHICLE must be QLD or TQQQ, got {VEHICLE!r}")
 WEIGHT_TOLERANCE = 0.03       # circuit breaker: post-trade weights must match target within this
 MIN_TRADE_USD    = 25.0       # skip trades smaller than this (avoid churn / dust)
 MAX_DATA_AGE_BD  = 4          # freshness: refuse if model data older than this (business days)
 BASE_URL         = "https://paper-api.alpaca.markets"   # PAPER endpoint (not live)
-PENDING          = Path("pending_order.json")
+PENDING          = Path(f"pending_order_{VEHICLE}.json")   # separate file per track
 
 
 # ---- target from the model -------------------------------------------------
