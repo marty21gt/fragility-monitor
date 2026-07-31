@@ -27,7 +27,8 @@ WEIGHT_TOLERANCE = 0.03       # circuit breaker: post-trade weights must match t
 MIN_TRADE_USD    = 25.0       # skip trades smaller than this (avoid churn / dust)
 MAX_DATA_AGE_BD  = 4          # freshness: refuse if model data older than this (business days)
 BASE_URL         = "https://paper-api.alpaca.markets"   # PAPER endpoint (not live)
-PENDING          = Path(f"pending_order_{VEHICLE}.json")   # separate file per track
+TRACK            = os.environ.get("TRACK", VEHICLE)   # names the pending file; defaults to VEHICLE
+PENDING          = Path(f"pending_order_{TRACK}.json")   # separate file per track
 
 
 # ---- target from the model -------------------------------------------------
@@ -47,6 +48,13 @@ def current_target():
     """Return (data_date, exposure, weights) the model wants for the NEXT session.
     Reuses the locked engine so the strategy logic has one source of truth."""
     import reference_backtest as R
+    # Per-track sizing overrides. Default to v3.0's locked values; the v3.1
+    # workflow sets these hotter (e.g. TARGET_VOL=0.25, LEVERAGE_CAP=3.0).
+    # Python resolves these globals at call time, so reassigning them here
+    # changes what target_exposure()/realized_vol() use -- engine stays untouched.
+    R.TARGET_VOL   = float(os.environ.get("TARGET_VOL",   R.TARGET_VOL))
+    R.VOL_FLOOR    = float(os.environ.get("VOL_FLOOR",    R.VOL_FLOOR))
+    R.LEVERAGE_CAP = float(os.environ.get("LEVERAGE_CAP", R.LEVERAGE_CAP))
     df = R.load("data.json", "daily_vt.json")
     sig = R.monitor_position(df)
     e = float(R.target_exposure(df, sig).iloc[-1])   # composite target at the latest close
