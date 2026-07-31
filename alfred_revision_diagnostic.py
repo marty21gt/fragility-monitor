@@ -9,53 +9,66 @@ the time. This script measures how large that leak actually is for the three
 ALFRED-addressable V inputs -- so you know whether a full vintage V-rebuild is worth
 the complexity before committing the pipeline to it.
 
-For each series it pulls two versions from the same FRED/ALFRED endpoint:
-    latest = current revised values     (output_type=1, default real-time period)
-    first  = value as first published   (output_type=4, "Initial Release Only")
-and reports the revision |latest - first|: its size, its size specifically over
-2010-2026, and its size relative to the series' own dispersion -- a proxy for
-whether the expanding-window percentile (how V consumes these) would actually shift.
+METHOD (why not output_type=4): FRED's "initial release only" (output_type=4) 400s
+unless paired with an explicit real-time window. So instead we pull EVERY vintage of
+each series with the full real-time span (realtime_start=1776-07-04,
+realtime_end=9999-12-31) -- the standard fredapi approach -- and reconstruct, per
+observation date:
+    first  = value at the earliest realtime_start  (as first published)
+    latest = value at the newest  realtime_start    (today's revised number)
+then report the revision |latest - first|: its size, its size over 2010-2026, and its
+size relative to the series' own dispersion (a proxy for whether the expanding-window
+percentile V uses would actually shift). 'vints' shows the archival depth -- if a
+series has only ~1 vintage it simply isn't archived, and first==latest.
 
 NOT covered: Shiller CAPE. It comes from Shiller's ie_data.xls (+ multpl), not FRED,
-so ALFRED has no vintage for it. If the three below prove material, CAPE needs a
-separate Shiller-specific point-in-time treatment.
+so ALFRED has no vintage for it; handle separately only if the three below matter.
 
 REQUIRES: FRED_API_KEY in the environment, and network access to api.stlouisfed.org
 (your GitHub Actions runner or a local machine -- not a restricted sandbox).
-Pure standard library + pandas; no extra dependencies.
+Standard library + pandas; no other dependencies.
 
     FRED_API_KEY=xxxx python alfred_revision_diagnostic.py
 """
 import os, sys, json, time
-import urllib.request, urllib.parse
+import urllib.request, urllib.parse, urllib.error
 import pandas as pd
 
 FRED_KEY = os.environ.get("FRED_API_KEY", "").strip()
 if not FRED_KEY:
     print("ERROR: FRED_API_KEY not set in the environment."); sys.exit(1)
 
-def fred(series, output_type=1, retries=3):
-    """FRED/ALFRED observations. output_type=1 -> latest revised (default real-time
-    period); output_type=4 -> initial release only (value as first published)."""
-    q = urllib.parse.urlencode({"series_id": series, "api_key": FRED_KEY,
-                                "file_type": "json", "output_type": output_type})
+def fred_vintages(series, obs_start="1990-01-01", retries=3):
+    """All ALFRED vintages for `series` since obs_start. Returns rows of
+    (observation_date, value, realtime_start)."""
+    q = urllib.parse.urlencode({
+        "series_id": series, "api_key": FRED_KEY, "file_type": "json",
+        "realtime_start": "1776-07-04", "realtime_end": "9999-12-31",
+        "observation_start": obs_start, "limit": "100000",
+    })
     url = f"https://api.stlouisfed.org/fred/series/observations?{q}"
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(url, timeout=60) as r:
+            with urllib.request.urlopen(url, timeout=90) as r:
                 obs = json.load(r)["observations"]
             break
-        except Exception as e:
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:300]
+            if attempt == retries - 1:
+                raise RuntimeError(f"HTTP {e.code}: {body}")
+            time.sleep(3)
+        except Exception:
             if attempt == retries - 1:
                 raise
             time.sleep(3)
-    idx, val = [], []
+    rows = []
     for o in obs:
         v = o.get("value", ".")
         if v in (".", "", None):
             continue
-        idx.append(pd.Timestamp(o["date"])); val.append(float(v))
-    return pd.Series(val, index=idx).sort_index()
+        rows.append((pd.Timestamp(o["date"]), float(v),
+                     pd.Timestamp(o["realtime_start"])))
+    return pd.DataFrame(rows, columns=["date", "value", "rt_start"])
 
 SERIES = {
     "BOGZ1FL663067003Q": "Margin-loan leverage (Z.1)",
@@ -63,29 +76,31 @@ SERIES = {
     "BOGZ1FL153064486Q": "Household equity alloc (Z.1)",
 }
 
-hdr = (f"{'series':<20}{'label':<32}{'n':>5}{'vint from':>10}"
+hdr = (f"{'series':<20}{'label':<32}{'obs':>5}{'vints':>7}"
        f"{'|rev| med':>11}{'|rev| max':>11}{'rev/sigma':>10}{'2010+ med':>11}")
 print(hdr); print("-" * len(hdr))
 
 for sid, label in SERIES.items():
     try:
-        latest = fred(sid, output_type=1)
-        first  = fred(sid, output_type=4)          # initial release only
+        v = fred_vintages(sid)
     except Exception as e:
         print(f"{sid:<20}{label:<32}  FETCH FAILED: {e}"); continue
-    both = pd.concat({"latest": latest, "first": first}, axis=1).dropna()
-    if both.empty:
-        print(f"{sid:<20}{label:<32}  no overlapping vintages (series not archived pre-now)")
-        continue
-    rev   = (both["latest"] - both["first"]).abs()
-    sigma = latest.std()
-    sub   = rev[both.index >= "2010-01-01"]
-    print(f"{sid:<20}{label:<32}{len(both):>5}{both.index.min().strftime('%Y-%m'):>10}"
+    if v.empty:
+        print(f"{sid:<20}{label:<32}  no observations returned"); continue
+    n_vint = v["rt_start"].nunique()
+    g = v.sort_values("rt_start").groupby("date")["value"]
+    both = pd.concat({"first": g.first(), "latest": g.last()}, axis=1).dropna()
+    rev = (both["latest"] - both["first"]).abs()
+    sigma = both["latest"].std()
+    sub = rev[both.index >= "2010-01-01"]
+    print(f"{sid:<20}{label:<32}{len(both):>5}{n_vint:>7}"
           f"{rev.median():>11.4g}{rev.max():>11.4g}"
           f"{(rev.median()/sigma if sigma else float('nan')):>10.3f}"
           f"{(sub.median() if len(sub) else float('nan')):>11.4g}")
 
 print("\nHow to read it:")
+print("  vints     = distinct archival vintages found. ~1 means the series isn't")
+print("              revised/archived, so first==latest and there's nothing to vintage.")
 print("  rev/sigma = median revision as a fraction of the series' own std deviation.")
 print("  < ~0.05  -> the expanding-window percentile V uses barely moves; skip the rebuild.")
 print("  > ~0.15  -> ranks likely shift some exit dates; the vintage V-rebuild is justified.")
