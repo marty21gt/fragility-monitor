@@ -1,0 +1,48 @@
+# .github/workflows/alfred-diagnostic.yml
+# One-off, manually triggered. Runs the ALFRED revision diagnostic with the
+# FRED_API_KEY already stored as a repo secret, prints the table to the run's
+# Summary page (easy to copy back), and uploads it as an artifact too.
+#
+# Put this file at .github/workflows/ in the SAME repo that holds
+# alfred_revision_diagnostic.py AND the FRED_API_KEY secret (that's
+# fragility-monitor). Then: Actions tab -> "ALFRED revision diagnostic"
+# -> Run workflow.
+
+name: ALFRED revision diagnostic
+
+on:
+  workflow_dispatch:        # manual "Run workflow" button only
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependency
+        run: pip install pandas
+
+      - name: Run diagnostic
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python alfred_revision_diagnostic.py | tee diagnostic_output.txt
+          {
+            echo '### ALFRED revision diagnostic'
+            echo '```'
+            cat diagnostic_output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload output
+        uses: actions/upload-artifact@v4
+        with:
+          name: alfred-diagnostic
+          path: diagnostic_output.txt
