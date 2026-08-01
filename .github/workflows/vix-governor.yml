@@ -1,0 +1,43 @@
+# .github/workflows/vix-governor.yml
+# Manually triggered. Fetches VXO/VIX from FRED with the existing key, runs the
+# implied-vol leverage-governor grid against the committed data.json/daily_vt.json,
+# and prints the crisis battery to the run Summary (and an artifact).
+#
+# Put this at .github/workflows/ in fragility-monitor (which has FRED_API_KEY and
+# the two data files). Needs vix_governor_test.py committed alongside them.
+# Then: Actions -> "VIX governor test" -> Run workflow.
+
+name: VIX governor test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install pandas numpy
+      - name: Run governor test
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python vix_governor_test.py data.json daily_vt.json | tee vix_output.txt
+          {
+            echo '### VIX/VXO leverage-governor test'
+            echo '```'
+            cat vix_output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload output
+        uses: actions/upload-artifact@v4
+        with:
+          name: vix-governor
+          path: vix_output.txt
