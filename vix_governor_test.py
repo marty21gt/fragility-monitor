@@ -93,6 +93,11 @@ def fred(sid,retries=3):
 df=load(DATA,VT); cash=cash_rate(df); sig=monitor(df); base=base_exposure(df,sig); px=df['px']
 vxo=fred("VXOCLS"); vix=fred("VIXCLS")
 iv=(vxo.reindex(df.index).combine_first(vix.reindex(df.index))/100.0).ffill()   # VXO primary, VIX fills 2021+
+import csv
+with open("implied_vol.csv","w",newline="") as f:
+    w=csv.writer(f); w.writerow(["date","iv"])
+    for d,v in iv.dropna().items(): w.writerow([d.date(), round(float(v),4)])
+print("wrote implied_vol.csv (spliced VXO/VIX, decimal annualized) -- upload this back for the full sweep")
 print(f"implied vol: VXO {vxo.index.min().date()}..{vxo.index.max().date()}, "
       f"VIX {vix.index.min().date()}..{vix.index.max().date()}; coverage {iv.notna().mean()*100:.0f}%")
 
@@ -119,3 +124,26 @@ for n,c,s,md,tm,d87,d00,d08,d20 in rows:
     print(f"{n:<18}{c*100:6.1f}%{s:6.2f}{md*100:6.0f}%{'$'+format(tm,',.0f'):>9} | {d87*100:5.0f}%{d00*100:5.0f}%{d08*100:5.0f}%{d20*100:5.0f}%")
 print("\nKey question: does any governor cut 1987/2020 WITHOUT gutting CAGR/terminal?")
 print("Watch whether implied vol was elevated on calm pre-crash days (its only edge over realized vol).")
+
+# ---------- HEADFAKE PAIR: spike -> exit, VIX-collapse -> fast re-enter (reduce-only) ----------
+def headfake(spike, reenter, capto):
+    ivv=iv.values; act=np.zeros(len(df),bool); on=False
+    for i in range(len(df)):
+        if i>=1:
+            if (not on) and ivv[i-1]>=spike: on=True
+            elif on and ivv[i-1]<=reenter: on=False
+        act[i]=on
+    held=pd.Series(np.where(act, np.minimum(base.values,capto), base.values), df.index)
+    m=metrics(strat_ret(df,held,cash),cash); eq=m['eq']
+    fires=int(np.sum(act[1:] & ~act[:-1])); daysout=int(act.sum())
+    cdd=lambda s,e:(eq.loc[s:e]/eq.loc[s:e].cummax()-1).min()
+    return (m['CAGR'],m['Sharpe'],m['MaxDD'],m['Term'],fires,daysout,
+            cdd('1987-08','1988-01'),cdd('2000-03','2002-12'),cdd('2007-10','2009-06'),cdd('2020-02','2020-06'))
+print(f"\n=== headfake pair: spike->SGOV, VIX-collapse->reinvest (reduce-only) ===")
+print(f"{'spike/reenter':<16}{'CAGR':>7}{'Shrp':>6}{'MaxDD':>7}{'$1->':>8}{'fires':>6}{'d.out':>6} | {'1987':>6}{'0002':>6}{'2008':>6}{'2020':>6}")
+for sp in (0.35,0.40,0.45):
+    for re in (0.20,0.25):
+        c,s2,md,tm,fr,do,d87,d00,d08,d20=headfake(sp,re,0.0)
+        print(f"{f'>{sp}/<{re}':<16}{c*100:6.1f}%{s2:6.2f}{md*100:6.0f}%{'$'+format(tm,',.0f'):>8}{fr:>6}{do:>6} | {d87*100:5.0f}%{d00*100:5.0f}%{d08*100:5.0f}%{d20*100:5.0f}%")
+
+print('\n(base for reference: 20.2% CAGR, 0.76 Sharpe, -42% MaxDD, ~$1,771)')
