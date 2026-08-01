@@ -98,6 +98,15 @@ with open("implied_vol.csv","w",newline="") as f:
     w=csv.writer(f); w.writerow(["date","iv"])
     for d,v in iv.dropna().items(): w.writerow([d.date(), round(float(v),4)])
 print("wrote implied_vol.csv (spliced VXO/VIX, decimal annualized) -- upload this back for the full sweep")
+try:
+    vxv = fred("VXVCLS")   # CBOE 3-month VIX (real 3-month ATM IV), inception 2007
+    with open("vxv_3month.csv","w",newline="") as f:
+        w=csv.writer(f); w.writerow(["date","vxv"])
+        for d,v in (vxv/100.0).dropna().items(): w.writerow([d.date(), round(float(v),4)])
+    print(f"wrote vxv_3month.csv (real 3-month ATM IV, {vxv.index.min().date()}+) -- refines the put term structure")
+    print("NOTE: VXV is ATM only -- it does NOT contain the 10%-OTM skew, which the sensitivity shows is decisive")
+except Exception as e:
+    print("VXV fetch failed (proceeding without it):", e)
 print(f"implied vol: VXO {vxo.index.min().date()}..{vxo.index.max().date()}, "
       f"VIX {vix.index.min().date()}..{vix.index.max().date()}; coverage {iv.notna().mean()*100:.0f}%")
 
