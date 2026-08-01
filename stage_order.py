@@ -26,6 +26,21 @@ def main():
     equity = float(client.account()["equity"])
     positions = client.positions_by_value()
 
+    # --- EXPOSURE-BAND GATE -------------------------------------------------
+    # Trade only when LIVE net exposure is more than REBALANCE_BAND (0.10) off
+    # the model target. This matches the backtest, which bands on exposure and
+    # deliberately does NOT rebalance intra-band QQQ-vs-TQQQ drift. Result:
+    # ~1-2 real rebalances/month (band steps + SGOV flips), and daily dust is
+    # left alone -- exactly the turnover the backtest assumed.
+    e_actual = X.net_exposure(positions, equity)
+    if abs(e_actual - e) <= X.REBALANCE_BAND:
+        print(f"No action. Live exposure {e_actual:.2f}x is within "
+              f"{X.REBALANCE_BAND:.2f} of the {e:.2f}x target -- band not crossed; "
+              f"drift left alone (as the backtest assumes).")
+        if X.PENDING.exists():
+            X.PENDING.unlink()   # clear any stale proposal
+        return
+
     orders = X.compute_orders(weights, equity, positions)
     _warn = X.safety_check(orders, equity, weights, positions)
     if _warn:
@@ -58,6 +73,11 @@ def main():
         verb = {"close": "SELL ALL", "buy": "BUY", "sell": "SELL"}[o["action"]]
         print(f"    {verb:9} {o['symbol']:5} ${o['notional']:,.0f}")
     print(f"\nWrote {X.PENDING.name}. Review it, then run submit_order.py to execute.")
+
+    # Intentional non-zero exit: GitHub only emails on a FAILED run, so a real
+    # band-crossing rebalance is surfaced to you as a "Run failed" alert. This
+    # is by design, not a bug -- it fires only when the exposure band is crossed.
+    sys.exit(1)
 
 
 if __name__ == "__main__":
