@@ -25,6 +25,7 @@ if VEHICLE not in ("QLD", "TQQQ"):
     raise SystemExit(f"VEHICLE must be QLD or TQQQ, got {VEHICLE!r}")
 WEIGHT_TOLERANCE = 0.03       # circuit breaker: post-trade weights must match target within this
 MIN_TRADE_USD    = 25.0       # skip trades smaller than this (avoid churn / dust)
+REBALANCE_BAND   = 0.10       # only rebalance when LIVE net exposure is >this off the model target
 MAX_DATA_AGE_BD  = 4          # freshness: refuse if model data older than this (business days)
 BASE_URL         = "https://paper-api.alpaca.markets"   # PAPER endpoint (not live)
 TRACK            = os.environ.get("TRACK", VEHICLE)   # names the pending file; defaults to VEHICLE
@@ -42,6 +43,18 @@ def exposure_to_weights(e: float) -> dict[str, float]:
         lev = (e - 1.0) / (mult - 1.0)
         return {"QQQ": 1.0 - lev, VEHICLE: lev, CASH_TICKER: 0.0}
     return {"QQQ": e, VEHICLE: 0.0, CASH_TICKER: 1.0 - e}
+
+
+def net_exposure(positions: dict[str, float], equity: float) -> float:
+    """Actual net leverage implied by the LIVE account (QQQ=1x, vehicle=2x/3x,
+    SGOV=0x). positions is {symbol: market_value_usd} from positions_by_value().
+    This is the number we compare to the model target to decide if the 0.10
+    exposure band has been crossed -- the same quantity the backtest bands on."""
+    if equity <= 0:
+        return 0.0
+    mult = 3.0 if VEHICLE == "TQQQ" else 2.0
+    levered = positions.get("QQQ", 0.0) * 1.0 + positions.get(VEHICLE, 0.0) * mult
+    return levered / equity
 
 
 def current_target():
