@@ -43,3 +43,4 @@ jobs:
           path: |
             vix_output.txt
             implied_vol.csv
+            vxv_3month.csv
