@@ -74,11 +74,6 @@ def main():
         print(f"    {verb:9} {o['symbol']:5} ${o['notional']:,.0f}")
     print(f"\nWrote {X.PENDING.name}. Review it, then run submit_order.py to execute.")
 
-    # Intentional non-zero exit: GitHub only emails on a FAILED run, so a real
-    # band-crossing rebalance is surfaced to you as a "Run failed" alert. This
-    # is by design, not a bug -- it fires only when the exposure band is crossed.
-    sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
