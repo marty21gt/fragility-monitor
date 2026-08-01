@@ -40,4 +40,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vix-governor
-          path: vix_output.txt
+          path: |
+            vix_output.txt
+            implied_vol.csv
