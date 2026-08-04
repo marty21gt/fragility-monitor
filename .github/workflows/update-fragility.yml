@@ -11,8 +11,12 @@ name: Update Fragility Data
 # a too-early run fail loudly instead of publishing stale data, and a re-run once
 # the feed catches up will pass.
 on:
+  # PRIMARY trigger: cron-job.org POSTs a repository_dispatch (see run-pipeline).
+  # The schedule below is only a BACKUP (off the hour). Either one starts the chain.
+  repository_dispatch:
+    types: [run-pipeline]
   schedule:
-  - cron: "0 22 * * 1-5"    # weekdays 22:00 UTC = 5pm EST / 6pm EDT (after the close)
+    - cron: "17 22 * * 1-5"    # backup only, off the top of the hour
   workflow_dispatch:
 
 permissions:
