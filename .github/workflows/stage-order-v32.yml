@@ -14,7 +14,8 @@ on:
     - cron: "0 23 * * 1-5"    # after your data pipeline updates. Adjust to match your
                               # v3.2 timing; the freshness gate fails loudly on stale data.
   workflow_dispatch:
-
+  repository_dispatch:
+    types: [run-stage-v32]
 permissions:
   contents: write
 
