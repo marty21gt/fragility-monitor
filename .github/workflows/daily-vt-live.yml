@@ -4,8 +4,9 @@ name: Daily VT live
 # Runs after US close on weekdays; recomputes daily V/T and commits daily_vt.json (QQQ)
 # and sp_daily.json (S&P). Does NOT touch production data.json.
 on:
-  schedule:
-    - cron: "10 22 * * 1-5"     # 22:10 UTC (~6:10pm ET) Mon-Fri, after close
+  workflow_run:
+    workflows: ["Update Fragility Data"]   # fires when the data build finishes
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -13,6 +14,10 @@ permissions:
 
 jobs:
   daily-vt:
+    # only proceed if the upstream succeeded (or this is a manual run)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
