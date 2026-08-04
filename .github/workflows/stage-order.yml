@@ -10,9 +10,9 @@
 name: Stage rebalance order
 
 on:
-  schedule:
-    - cron: "0 23 * * 1-5"    # after your data pipeline updates. Adjust if needed;
-                              # the freshness gate will fail loudly rather than stage stale data.
+  workflow_run:
+    workflows: ["Daily VT live"]           # fires when the daily V/T step finishes
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -20,6 +20,10 @@ permissions:
 
 jobs:
   stage:
+    # only proceed if the upstream succeeded (or this is a manual run)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     env:
       PYTHONDONTWRITEBYTECODE: "1"
