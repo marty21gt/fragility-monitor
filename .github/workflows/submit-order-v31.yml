@@ -1,24 +1,29 @@
-# .github/workflows/submit-order-v31.yml
+# .github/workflows/stage-order-v31.yml
 #
-# APPROVE + SUBMIT step -- this is YOUR approval. It only runs when you click
-# "Run workflow" (no schedule). It re-runs every safety check (proposal age,
-# data freshness, market open, positions unchanged, orders match target) and
-# then sends the staged orders to your Alpaca PAPER account. Keys are PAPER
-# keys; the code is locked to the paper endpoint.
-#
-# Timing: your model executes at the next close, so click this near the market
-# close (the orders are DAY market orders, approximating market-on-close).
+# STAGE step -- runs automatically after the daily signal, computes the
+# rebalance the model wants, and commits it as pending_order_${VEHICLE}.json for your
+# review. It SUBMITS NOTHING. A green run means "nothing to do today"; a red
+# run means "your attention is needed" -- open it to see whether it's a staged
+# trade to approve or a stale-data warning. Keys are PAPER keys; the code is
+# locked to the paper endpoint and cannot touch real money.
 
-name: Approve & submit order (v3.1)
+name: Stage rebalance order (v3.1)
 
 on:
-  workflow_dispatch:     # manual button ONLY -- this click is your sign-off
+  workflow_run:
+    workflows: ["Daily VT live"]           # fires when the daily V/T step finishes
+    types: [completed]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  submit:
+  stage:
+    # only proceed if the upstream succeeded (or this is a manual run)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     env:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -35,17 +40,33 @@ jobs:
       - name: Install dependencies
         run: pip install numpy pandas
 
-      - name: Submit the approved order
-        run: python submit_order.py
+      - name: Compute the proposal
+        run: |
+          set -o pipefail
+          python stage_order.py | tee stage_output.txt
 
-      - name: Archive the submitted proposal
+      - name: Sync the proposal to the repo
         run: |
           git config user.name  "fragility-bot"
           git config user.email "actions@users.noreply.github.com"
-          git rm -r --cached --ignore-unmatch __pycache__ >/dev/null 2>&1 || true
-          git add .gitignore pending_order_${VEHICLE}.json pending_order_${VEHICLE}.submitted.json 2>/dev/null || true
+          git add pending_order_${VEHICLE}.json || true          # stages a new proposal OR its removal
           if ! git diff --staged --quiet; then
-            git commit -m "Submitted order (${VEHICLE}) $(date -u +%Y-%m-%d)"
+            git commit -m "Update rebalance proposal $(date -u +%Y-%m-%d)"
             git pull --rebase origin main
             git push
+          else
+            echo "No change to proposal state."
+          fi
+
+      - name: Flag if action is needed
+        run: |
+          if [ -f pending_order_${VEHICLE}.json ]; then
+            echo "### Rebalance proposed -- review and approve" >> "$GITHUB_STEP_SUMMARY"
+            echo '```'                                          >> "$GITHUB_STEP_SUMMARY"
+            cat stage_output.txt                                >> "$GITHUB_STEP_SUMMARY"
+            echo '```'                                          >> "$GITHUB_STEP_SUMMARY"
+            echo "A trade is staged. Review it, then run the 'Approve & submit order' workflow."
+            exit 1     # deliberate: turns the run red so GitHub emails you that action is needed
+          else
+            echo "No trade needed today."
           fi
