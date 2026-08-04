@@ -10,17 +10,20 @@
 name: Stage rebalance order (v3.2 hot)
 
 on:
-  schedule:
-    - cron: "0 23 * * 1-5"    # after your data pipeline updates. Adjust to match your
-                              # v3.2 timing; the freshness gate fails loudly on stale data.
+  workflow_run:
+    workflows: ["Daily VT live"]           # fires when the daily V/T step finishes
+    types: [completed]
   workflow_dispatch:
-  repository_dispatch:
-    types: [run-stage-v32]
+
 permissions:
   contents: write
 
 jobs:
   stage:
+    # only proceed if the upstream succeeded (or this is a manual run)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     env:
       PYTHONDONTWRITEBYTECODE: "1"
