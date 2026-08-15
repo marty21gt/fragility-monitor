@@ -42,6 +42,13 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python fetch_and_build.py
 
+      - name: Seal monitor signals
+        run: |
+          pip install cryptography
+          python seal_current.py data.json
+        env:
+          MONITOR_PASSPHRASE: ${{ secrets.MONITOR_PASSPHRASE }}
+       
       - name: Publish the updated data
         run: |
           git config user.name "fragility-bot"
