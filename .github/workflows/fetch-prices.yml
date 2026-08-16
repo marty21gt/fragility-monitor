@@ -1,0 +1,25 @@
+name: Fetch backtest prices
+on:
+  workflow_dispatch:        # run it manually from the Actions tab
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install yfinance pandas requests
+      - name: Fetch prices
+        env:
+          ALPACA_KEY:    ${{ secrets.APCA_API_KEY_ID }}
+          ALPACA_SECRET: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: python fetch_backtest_prices.py
+      - name: Commit CSVs
+        run: |
+          git config user.name  "price-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add ndx_daily.csv qqq_daily.csv qqq_intraday_350.csv 2>/dev/null || true
+          git commit -m "Fetch backtest OHLC + 3:50 marks $(date -u +%Y-%m-%d)" || echo "no changes"
+          git push
