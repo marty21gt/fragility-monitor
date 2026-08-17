@@ -1,9 +1,9 @@
 # .github/workflows/intraday-crash-check-v33.yml
 #
-# 3:45pm ET fast-crash check for v3.3. Fired by cron-job.org repository_dispatch
-# ~15 min before the close. Sets the persistent emergency state if the live
-# trigger breaches, then runs your stage_order.py so the exit is proposed through
-# the same safety-checked path as any rebalance. Red run = an exit is staged.
+# 3:45pm ET EMERGENCY-ONLY check for v3.3. Fired by cron-job.org repository_dispatch.
+# It stages (and emails) ONLY when the -8%/3-session trigger trips -- never a routine
+# rebalance (that is the 5pm stage-order-v33 job's responsibility). Same-close exit:
+# approve & submit before the bell. If this misses, the 5pm close-based check backstops.
 name: v3.3 intraday crash check (3:45pm ET)
 
 on:
@@ -32,32 +32,35 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install numpy pandas
-      - name: Intraday crash check (sets emergency state if fired)
+
+      - name: Intraday crash check (writes EMERGENCY_FIRED only if the trigger trips)
         run: python intraday_crash_check.py | tee intraday_output.txt
-      - name: Stage the exit through the normal machinery
+
+      - name: Stage the exit -- ONLY when fired (never a routine rebalance)
+        if: ${{ hashFiles('EMERGENCY_FIRED') != '' }}
         run: |
           set -o pipefail
           python stage_order.py | tee stage_output.txt
-      - name: Sync proposal + emergency state
+
+      - name: Commit proposal + emergency state -- ONLY when fired
+        if: ${{ hashFiles('EMERGENCY_FIRED') != '' }}
         run: |
           git config user.name  "fragility-bot"
           git config user.email "actions@users.noreply.github.com"
           git add pending_order_${TRACK}.json emergency.json emergency_state.json || true
           if ! git diff --staged --quiet; then
-            git commit -m "v3.3 intraday check $(date -u +%Y-%m-%dT%H:%MZ)"
+            git commit -m "v3.3 EMERGENCY EXIT staged $(date -u +%Y-%m-%dT%H:%MZ)"
             git pull --rebase origin main
             git push
           else
             echo "No change."
           fi
-      - name: Flag if an exit is staged
+
+      - name: Fail the run so you get the email -- ONLY when an exit is staged
+        if: ${{ hashFiles('EMERGENCY_FIRED') != '' }}
         run: |
-          if [ -f pending_order_${TRACK}.json ]; then
-            echo "### v3.3 EMERGENCY EXIT staged -- approve & submit BEFORE the close" >> "$GITHUB_STEP_SUMMARY"
-            echo '```'                >> "$GITHUB_STEP_SUMMARY"
-            cat stage_output.txt      >> "$GITHUB_STEP_SUMMARY"
-            echo '```'                >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          else
-            echo "No trigger / nothing staged."
-          fi
+          echo "### v3.3 EMERGENCY EXIT staged -- approve & submit BEFORE the close" >> "$GITHUB_STEP_SUMMARY"
+          echo '```'               >> "$GITHUB_STEP_SUMMARY"
+          cat stage_output.txt     >> "$GITHUB_STEP_SUMMARY"
+          echo '```'               >> "$GITHUB_STEP_SUMMARY"
+          exit 1
