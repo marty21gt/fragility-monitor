@@ -1,0 +1,74 @@
+# .github/workflows/stage-order-v33.yml
+#
+# STAGE step for v3.3 (TQQQ hot + fast-crash emergency overlay). Identical in
+# shape to stage-order-v32.yml: fires after "Daily VT live", computes the
+# rebalance the model wants -- now INCLUDING the emergency overlay via
+# current_target() when TRACK=v33 -- and commits pending_order_v33.json for
+# review. Submits NOTHING. Green = nothing to do; red = your attention is needed.
+# Paper keys only; code is locked to the paper endpoint.
+
+name: Stage rebalance order (v3.3)
+
+on:
+  workflow_run:
+    workflows: ["Daily VT live"]           # same upstream as the v3.2 stage job
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      VEHICLE:             TQQQ
+      TRACK:               v33
+      TARGET_VOL:          "0.25"
+      LEVERAGE_CAP:        "3.0"
+      APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID_V33 }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY_V33 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install numpy pandas
+
+      - name: Compute the proposal
+        run: |
+          set -o pipefail
+          python stage_order.py | tee stage_output.txt
+
+      - name: Sync the proposal + emergency state to the repo
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add pending_order_${TRACK}.json emergency.json || true
+          if ! git diff --staged --quiet; then
+            git commit -m "Update rebalance proposal (v3.3) $(date -u +%Y-%m-%d)"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No change to proposal state."
+          fi
+
+      - name: Flag if action is needed
+        run: |
+          if [ -f pending_order_${TRACK}.json ]; then
+            echo "### Rebalance proposed (v3.3) -- review and approve" >> "$GITHUB_STEP_SUMMARY"
+            echo '```'                                                 >> "$GITHUB_STEP_SUMMARY"
+            cat stage_output.txt                                       >> "$GITHUB_STEP_SUMMARY"
+            echo '```'                                                 >> "$GITHUB_STEP_SUMMARY"
+            echo "A trade is staged. Review it, then run 'Approve & submit order (v3.3)'."
+            exit 1     # deliberate: turns the run red so GitHub emails you
+          else
+            echo "No trade needed today."
+          fi
