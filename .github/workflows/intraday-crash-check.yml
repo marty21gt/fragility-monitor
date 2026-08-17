@@ -20,8 +20,8 @@ jobs:
         run: pip install numpy pandas
       - name: Intraday crash check
         env:
-          APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
-          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID_V33 }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY_V33 }}
         run: python intraday_crash_check.py
       - name: Commit state + proposal
         run: |
@@ -30,16 +30,9 @@ jobs:
           git add emergency.json proposal.json 2>/dev/null || true
           git commit -m "v3.3 intraday check $(date -u +%Y-%m-%dT%H:%MZ)" || echo "no changes"
           git push || echo "nothing to push"
-      - name: Red-flag email (only when an exit was staged)
+      - name: Flag for review — fail the run so GitHub emails you (no email secrets needed)
         if: ${{ hashFiles('RED_FLAG') != '' }}
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.MAIL_SERVER }}
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "v3.3 EMERGENCY EXIT staged — approve before the close"
-          to: ${{ secrets.MAIL_TO }}
-          from: Modern Edge v3.3
-          body: file://RED_FLAG
+        run: |
+          echo "::error::v3.3 EMERGENCY EXIT staged — approve & submit before the close. See proposal.json."
+          cat RED_FLAG
+          exit 1
