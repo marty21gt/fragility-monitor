@@ -1,0 +1,63 @@
+# .github/workflows/intraday-crash-check-v33.yml
+#
+# 3:45pm ET fast-crash check for v3.3. Fired by cron-job.org repository_dispatch
+# ~15 min before the close. Sets the persistent emergency state if the live
+# trigger breaches, then runs your stage_order.py so the exit is proposed through
+# the same safety-checked path as any rebalance. Red run = an exit is staged.
+name: v3.3 intraday crash check (3:45pm ET)
+
+on:
+  repository_dispatch:
+    types: [intraday-crash-check]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      VEHICLE:             TQQQ
+      TRACK:               v33
+      TARGET_VOL:          "0.25"
+      LEVERAGE_CAP:        "3.0"
+      APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID_V33 }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY_V33 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install numpy pandas
+      - name: Intraday crash check (sets emergency state if fired)
+        run: python intraday_crash_check.py | tee intraday_output.txt
+      - name: Stage the exit through the normal machinery
+        run: |
+          set -o pipefail
+          python stage_order.py | tee stage_output.txt
+      - name: Sync proposal + emergency state
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add pending_order_${TRACK}.json emergency.json emergency_state.json || true
+          if ! git diff --staged --quiet; then
+            git commit -m "v3.3 intraday check $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No change."
+          fi
+      - name: Flag if an exit is staged
+        run: |
+          if [ -f pending_order_${TRACK}.json ]; then
+            echo "### v3.3 EMERGENCY EXIT staged -- approve & submit BEFORE the close" >> "$GITHUB_STEP_SUMMARY"
+            echo '```'                >> "$GITHUB_STEP_SUMMARY"
+            cat stage_output.txt      >> "$GITHUB_STEP_SUMMARY"
+            echo '```'                >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            echo "No trigger / nothing staged."
+          fi
