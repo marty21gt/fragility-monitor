@@ -1,0 +1,49 @@
+name: v3.3 daily staging (5:00pm ET)
+# Post-close: recompute the v3.3 target (vol-scaled base + emergency overlay),
+# advance the emergency state one day (re-entry after the delay defers to the
+# monitor), stage any rebalance, publish state-only emergency.json. Triggered by
+# cron-job.org repository_dispatch at 5:00 ET; schedule kept as a backstop.
+on:
+  repository_dispatch:
+    types: [daily-v33]
+  schedule:
+    - cron: "5 21 * * 1-5"      # 21:05 UTC ~ 5:05pm ET (DST drifts; cron-job.org is primary)
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install numpy pandas
+      - name: Stage v3.3 target
+        env:
+          APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_API_BASE_URL:   https://paper-api.alpaca.markets
+        run: python stage_v33.py
+      - name: Commit state + proposal
+        run: |
+          git config user.name  "v33-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add emergency.json proposal.json 2>/dev/null || true
+          git commit -m "v3.3 daily stage $(date -u +%Y-%m-%d)" || echo "no changes"
+          git push || echo "nothing to push"
+      - name: Red-flag email (only when a trade is needed)
+        if: ${{ hashFiles('RED_FLAG') != '' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "v3.3 rebalance staged — approve & submit"
+          to: ${{ secrets.MAIL_TO }}
+          from: Modern Edge v3.3
+          body: file://RED_FLAG
