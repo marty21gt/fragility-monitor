@@ -1,0 +1,46 @@
+# .github/workflows/submit-order-v33.yml
+#
+# APPROVE & SUBMIT for v3.3. Manual trigger only -- this is the human gate.
+# Re-checks every safety condition in submit_order.py (proposal freshness, data
+# freshness, market open, positions unchanged, circuit breaker), then sends the
+# staged orders to the PAPER account and archives the proposal.
+name: Approve & submit order (v3.3)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      VEHICLE:             TQQQ
+      TRACK:               v33
+      TARGET_VOL:          "0.25"
+      LEVERAGE_CAP:        "3.0"
+      APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID_V33 }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY_V33 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install numpy pandas
+      - name: Submit the approved order
+        run: python submit_order.py | tee submit_output.txt
+      - name: Archive the submitted proposal
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add pending_order_${TRACK}.json pending_order_${TRACK}.submitted.json || true
+          if ! git diff --staged --quiet; then
+            git commit -m "Submit order (v3.3) $(date -u +%Y-%m-%d)"
+            git pull --rebase origin main
+            git push
+          else
+            echo "Nothing to archive."
+          fi
