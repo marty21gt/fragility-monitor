@@ -20,6 +20,6 @@ jobs:
         run: |
           git config user.name  "price-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add ndx_daily.csv qqq_daily.csv qqq_intraday_350.csv 2>/dev/null || true
+          git add ndx_daily.csv qqq_daily.csv tqqq_daily.csv qqq_intraday_350.csv 2>/dev/null || true
           git commit -m "Fetch backtest OHLC + 3:50 marks $(date -u +%Y-%m-%d)" || echo "no changes"
           git push
