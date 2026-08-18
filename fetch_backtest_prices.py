@@ -17,7 +17,7 @@ import pandas as pd
 
 def fetch_daily():
     import yfinance as yf
-    for sym, out in [("^NDX", "ndx_daily.csv"), ("QQQ", "qqq_daily.csv")]:
+    for sym, out in [("^NDX", "ndx_daily.csv"), ("QQQ", "qqq_daily.csv"), ("TQQQ", "tqqq_daily.csv")]:
         d = yf.download(sym, start="1985-01-01", auto_adjust=False, progress=False)
         if d is None or len(d) == 0:
             print(f"WARNING: no data for {sym}"); continue
