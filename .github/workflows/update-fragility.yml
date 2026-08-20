@@ -15,8 +15,6 @@ on:
   # The schedule below is only a BACKUP (off the hour). Either one starts the chain.
   repository_dispatch:
     types: [run-pipeline]
-  schedule:
-    - cron: "17 22 * * 1-5"    # backup only, off the top of the hour
   workflow_dispatch:
 
 permissions:
