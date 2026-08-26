@@ -1,30 +1,30 @@
 {
-  "staged_at_utc": "2026-08-24T22:47:47.473254Z",
-  "data_date": "2026-08-24",
+  "staged_at_utc": "2026-08-26T14:13:14.341890Z",
+  "data_date": "2026-08-25",
   "vehicle": "TQQQ",
-  "target_exposure": 1.3094,
+  "target_exposure": 1.0486,
   "target_weights": {
-    "QQQ": 0.8453,
-    "TQQQ": 0.1547,
+    "QQQ": 0.9757,
+    "TQQQ": 0.0243,
     "SGOV": 0.0
   },
-  "equity_at_stage": 102077.75,
+  "equity_at_stage": 102575.64,
   "positions_at_stage": {
-    "QQQ": 99530.41,
-    "TQQQ": 2547.33
+    "QQQ": 86762.43,
+    "TQQQ": 15751.76
   },
   "orders": [
     {
-      "symbol": "QQQ",
+      "symbol": "TQQQ",
       "side": "sell",
       "action": "sell",
-      "notional": 13242.43
+      "notional": 13260.75
     },
     {
-      "symbol": "TQQQ",
+      "symbol": "QQQ",
       "side": "buy",
       "action": "buy",
-      "notional": 13242.45
+      "notional": 13322.2
     }
   ]
 }
