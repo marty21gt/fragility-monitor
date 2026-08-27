@@ -1,0 +1,34 @@
+name: Preflight check (verify target)
+
+# Click "Run workflow" in the Actions tab before any rebalance.
+# Optionally enter your current live exposure to get the trade direction.
+# The run goes GREEN if the data is complete and the target is trustworthy,
+# and RED (with a notification) if the price series has a gap.
+
+on:
+  workflow_dispatch:
+    inputs:
+      current_pos:
+        description: 'Your current live exposure (e.g. 1.05) -- optional, for trade direction'
+        required: false
+        default: ''
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -q numpy pandas
+
+      - name: Run preflight check
+        env:
+          CURRENT_POS: ${{ github.event.inputs.current_pos }}
+        run: python preflight_check.py
