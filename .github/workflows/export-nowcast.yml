@@ -26,7 +26,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install deps
-        run: pip install -q numpy pandas requests lxml xlrd yfinance
+        run: pip install -q numpy pandas requests lxml xlrd openpyxl yfinance
 
       - name: Build with DAILY_VT=1 (writes nowcast_export.json; no commit)
         env:
