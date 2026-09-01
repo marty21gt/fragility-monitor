@@ -1,0 +1,42 @@
+name: Export nowcast (one-off study data)
+
+# Generates nowcast_export.json (S&P-aligned daily nowcast + monthly-gauge
+# intermediates) for the seal-on-the-1st backtest study. It runs fetch_and_build.py
+# with DAILY_VT=1, then uploads the file as a downloadable artifact.
+#
+# IMPORTANT: this workflow does NOT commit or push anything. It regenerates data.json
+# locally on the runner and throws it away -- your production data.json is untouched.
+#
+# To use: Actions tab -> "Export nowcast" -> Run workflow. When it finishes, open the
+# run, download the "nowcast_export" artifact, and send me the JSON inside.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -q numpy pandas requests lxml xlrd yfinance
+
+      - name: Build with DAILY_VT=1 (writes nowcast_export.json; no commit)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          DAILY_VT: "1"
+        run: python fetch_and_build.py
+
+      - name: Upload the export
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowcast_export
+          path: nowcast_export.json
+          if-no-files-found: error
