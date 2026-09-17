@@ -50,15 +50,28 @@ jobs:
           git config user.name  "fragility-bot"
           git config user.email "actions@users.noreply.github.com"
           git add pending_order_${VEHICLE}.json || true          # stages a new proposal OR its removal
-          if ! git diff --staged --quiet; then
-            git commit -m "Update rebalance proposal $(date -u +%Y-%m-%d)"
-            git pull --rebase origin main
-            git push
-          else
+          if git diff --staged --quiet; then
             echo "No change to proposal state."
+            exit 0
           fi
+          git commit -m "Update rebalance proposal $(date -u +%Y-%m-%d)"
+          # RACE FIX: the v3.1/v3.2/v3.3 stage jobs all fire off the same "Daily VT live"
+          # run and push to the same branch. A single pull-then-push loses whenever another
+          # track pushes in the gap between them (rejected: "fetch first"). Retry with a
+          # rebase and jittered backoff so the tracks interleave instead of colliding.
+          for attempt in 1 2 3 4 5 6; do
+            if git pull --rebase origin main && git push origin main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "push race lost (attempt $attempt) -- rebasing and retrying"
+            sleep $(( (RANDOM % 7) + 3 ))
+          done
+          echo "ERROR: could not push after 6 attempts"
+          exit 1
 
       - name: Flag if action is needed
+        if: always()   # run even if the push above failed, so the trade still gets reported
         run: |
           if [ -f pending_order_${VEHICLE}.json ]; then
             echo "### Rebalance proposed -- review and approve" >> "$GITHUB_STEP_SUMMARY"
