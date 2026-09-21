@@ -1,0 +1,58 @@
+name: Publish v3.3 backtest series
+
+# Rebuilds backtest_v33.json (the Timeline Explorer series on the v3.3 page)
+# from the freshly published feed, so the chart advances daily instead of
+# drifting months behind the Daily Action panel above it.
+#
+# Chains off "Daily VT live" like the stage jobs, so it runs after data.json
+# and daily_vt.json are current. Uses the same rebase-retry push as the stage
+# workflows, since several jobs push to main at the same moment.
+
+on:
+  workflow_run:
+    workflows: ["Daily VT live"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install numpy pandas
+
+      - name: Rebuild the v3.3 backtest series
+        run: python build_backtest_v33.py
+
+      - name: Publish backtest_v33.json
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add backtest_v33.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No change to the backtest series."
+            exit 0
+          fi
+          git commit -m "Rebuild v3.3 backtest series $(date -u +%Y-%m-%d)"
+          for attempt in 1 2 3 4 5 6; do
+            if git pull --rebase origin main && git push origin main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "push race lost (attempt $attempt) -- rebasing and retrying"
+            sleep $(( (RANDOM % 7) + 3 ))
+          done
+          echo "ERROR: could not push after 6 attempts"
+          exit 1
