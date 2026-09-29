@@ -1,0 +1,113 @@
+# .github/workflows/auto-submit-v32.yml
+#
+# AUTO-SUBMIT for the v3.2 CANARY. Unattended: when the 6:45pm stage job left a
+# proposal, this runs the next session at ~12:00 ET, re-validates it, recomputes the
+# orders at live prices, sends them to the v3.2 PAPER account, and logs every fill.
+#
+# v3.3 is untouched: it keeps stage -> review -> "Approve & submit order (v3.3)".
+# auto_submit_order.py hard-refuses any TRACK other than v32.
+#
+# TRIGGER: cron-job.org POSTs a repository_dispatch with event_type "auto-submit-v32"
+#          at 12:00 America/New_York, Mon-Fri (holidays are handled by Alpaca's clock).
+# KILL SWITCH: create a file named AUTOTRADE_OFF in the repo root (web UI: Add file).
+#              The next run sees it and sends nothing. Delete it to resume.
+# MANUAL TEST: Actions -> this workflow -> Run workflow. Dry run is ON by default.
+#
+# Colours:  green = nothing to do / skipped / dry run
+#           red   = ABORTED (read the log)   -- or --   trade EXECUTED (FYI, see step name)
+
+name: Auto-submit order (v3.2 canary)
+
+on:
+  repository_dispatch:
+    types: [auto-submit-v32]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run -- compute and print the orders, submit NOTHING"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  auto:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      # must match stage-order-v32.yml exactly, or the re-validation will (correctly) abort
+      VEHICLE:             TQQQ
+      TRACK:               v32
+      TARGET_VOL:          "0.25"
+      LEVERAGE_CAP:        "3.0"
+      NOTIFY_ON_TRADE:     "1"      # "1" = turn the run red after a trade so GitHub emails you
+      DRY_RUN:             ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+      APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID_V32 }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY_V32 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install numpy pandas
+
+      - name: Auto-submit (re-validate, recompute, trade, log fills)
+        id: run
+        run: |
+          set +e
+          python auto_submit_order.py 2>&1 | tee auto_output.txt
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0            # never fail here -- the state must still be committed below
+
+      - name: Commit proposal state + fill log
+        if: always()
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          for f in pending_order_${TRACK}.json \
+                   pending_order_${TRACK}.submitting.json \
+                   pending_order_${TRACK}.submitted.json \
+                   pending_order_${TRACK}.skipped.json \
+                   autotrade_log_${TRACK}.csv; do
+            git add -A -- "$f" 2>/dev/null || true     # stages new, changed, or deleted
+          done
+          if git diff --staged --quiet; then
+            echo "No state change to commit."
+            exit 0
+          fi
+          git commit -m "Auto-submit state (v3.2) $(date -u +%Y-%m-%d)"
+          for attempt in 1 2 3 4 5 6; do
+            if git pull --rebase origin main && git push origin main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "push race lost (attempt $attempt) -- rebasing and retrying"
+            sleep $(( (RANDOM % 7) + 3 ))
+          done
+          echo "ERROR: could not push after 6 attempts"
+          exit 1
+
+      - name: Report (red = ABORTED, or red-as-FYI = trade executed)
+        if: always()
+        run: |
+          rc="${{ steps.run.outputs.rc }}"
+          {
+            echo "### Auto-submit (v3.2) -- exit code ${rc:-none}"
+            echo '```'
+            cat auto_output.txt 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$rc" ] || [ "$rc" = "1" ]; then
+            echo "ABORTED -- a human is needed. Read the summary above."
+            exit 1
+          fi
+          if [ "$rc" = "10" ] && [ "$NOTIFY_ON_TRADE" = "1" ]; then
+            echo "NOTICE: a trade was EXECUTED. This red run is an FYI, not an error."
+            exit 1
+          fi
+          echo "OK -- nothing needed attention."
