@@ -1,0 +1,79 @@
+# .github/workflows/update-ledger-v33.yml
+#
+# Nightly update of ledger/v33_paper_trading.xlsx (v3.3 Alpaca paper track).
+#
+# Runs at 8:05pm ET on trading days, well after the 6:45pm pipeline has committed
+# data.json / daily_vt.json / emergency.json. GitHub's cron is UTC-only and ignores
+# daylight saving, so two slots are scheduled: 00:05 UTC (8:05pm EDT) and 01:05 UTC
+# (8:05pm EST). The script skips a scheduled run that lands before 8pm ET, and the
+# later slot finds nothing left to do. A missed night catches up on the next run.
+#
+# Read-only against Alpaca (GET only, paper endpoint). The run turns red if the
+# ledger does not reconcile to Alpaca, so GitHub emails you.
+#
+# If you edit the spreadsheet by hand: download it AFTER the night's run, and don't
+# upload between 8:00 and ~8:30pm ET, or you'll overwrite the row it just added.
+name: Update v3.3 ledger
+
+on:
+  schedule:
+    - cron: "5 0,1 * * 2-6"     # Tue-Sat UTC = Mon-Fri evenings ET
+  workflow_dispatch:             # manual runs ignore the 8pm gate
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ledger-v33
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID_V33 }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY_V33 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install openpyxl
+
+      - name: Update the ledger
+        run: python update_ledger_v33.py
+
+      - name: Commit the ledger
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add ledger/v33_paper_trading.xlsx
+          if git diff --staged --quiet; then
+            echo "No change to the ledger."
+            exit 0
+          fi
+          git commit -m "Update v3.3 ledger $(TZ=America/New_York date +%Y-%m-%d)"
+          # same race-safe push as the stage jobs
+          for attempt in 1 2 3 4 5 6; do
+            if git pull --rebase origin main && git push origin main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            sleep $(( (RANDOM % 7) + 3 ))
+          done
+          echo "ERROR: could not push after 6 attempts"
+          exit 1
+
+      - name: Flag reconciliation problems
+        if: always()
+        run: |
+          if [ -f ledger_alert.txt ]; then
+            echo "### Ledger does not reconcile to Alpaca" >> "$GITHUB_STEP_SUMMARY"
+            cat ledger_alert.txt >> "$GITHUB_STEP_SUMMARY"
+            cat ledger_alert.txt
+            exit 1
+          fi
