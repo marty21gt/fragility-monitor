@@ -1,0 +1,39 @@
+v3.3 paper account history from 2026-07-20 (read-only pull, 2026-10-03 17:41 ET)
+Account created 2026-07-27 14:12:48 ET | equity $114,465.89 | cash $-0.14
+First days with equity:
+  2026-07-24  $100,000.00
+  2026-07-27  $100,199.49
+  2026-07-28  $99,225.58
+  2026-07-29  $99,225.58
+  2026-07-30  $100,409.55
+  2026-07-31  $101,061.76
+First filled orders:
+  2026-07-27 14:52:54  buy  QQQ   146.894222718 @ 680.761899  = $99,999.99
+  2026-08-18 09:32:53  sell QQQ   3.914318073 @ 720.417880  = $2,819.94
+  2026-08-18 09:32:58  buy  TQQQ  37.394546231 @ 73.372914  = $2,743.75
+  2026-08-25 10:16:44  sell QQQ   18.841315215 @ 710.153185  = $13,380.22
+Non-trade cash activities since 2026-07-20: 22
+  2026-07-27  JNLC  100000  
+  2026-07-27  FEE  -0.01  CAT fee for proceed of 5 trades on 2026-07-27 by PA3XGD47JF2P
+  2026-08-18  FEE  -0.01  CAT fee for proceed of 6 trades on 2026-08-18 by PA3XGD47JF2P
+  2026-08-18  FEE  -0.01  TAF fee for proceed of 3.914318073 shares (3 trades) on 2026-08-18 by PA3XGD47JF2P
+  2026-08-18  FEE  -0.06  REG fee for proceed of $2819.94 on 2026-08-18 by PA3XGD47JF2P
+  2026-08-25  FEE  -0.01  TAF fee for proceed of 18.841315215 shares (6 trades) on 2026-08-25 by PA3XGD47JF2P
+  2026-08-25  FEE  -0.28  REG fee for proceed of $13380.22 on 2026-08-25 by PA3XGD47JF2P
+  2026-08-25  FEE  -0.01  CAT fee for proceed of 12 trades on 2026-08-25 by PA3XGD47JF2P
+  2026-08-26  FEE  -0.01  CAT fee for proceed of 9 trades on 2026-08-26 by PA3XGD47JF2P
+  2026-08-26  FEE  -0.29  REG fee for proceed of $13595.44 on 2026-08-26 by PA3XGD47JF2P
+  2026-08-26  FEE  -0.04  TAF fee for proceed of 193.603701067 shares (6 trades) on 2026-08-26 by PA3XGD47JF2P
+  2026-08-27  FEE  -0.01  TAF fee for proceed of 11.24157515 shares (2 trades) on 2026-08-27 by PA3XGD47JF2P
+  2026-08-27  FEE  -0.01  CAT fee for proceed of 9 trades on 2026-08-27 by PA3XGD47JF2P
+  2026-08-27  FEE  -0.17  REG fee for proceed of $8056.05 on 2026-08-27 by PA3XGD47JF2P
+  2026-08-28  FEE  -0.01  CAT fee for proceed of 5 trades on 2026-08-28 by PA3XGD47JF2P
+  2026-08-28  FEE  -0.01  TAF fee for proceed of 14.200144649 shares (3 trades) on 2026-08-28 by PA3XGD47JF2P
+  2026-08-28  FEE  -0.22  REG fee for proceed of $10207.1 on 2026-08-28 by PA3XGD47JF2P
+  2026-09-03  FEE  -0.01  CAT fee for proceed of 9 trades on 2026-09-03 by PA3XGD47JF2P
+  2026-09-03  FEE  -0.57  REG fee for proceed of $27550.92 on 2026-09-03 by PA3XGD47JF2P
+  2026-09-03  FEE  -0.01  TAF fee for proceed of 38.752088431 shares (4 trades) on 2026-09-03 by PA3XGD47JF2P
+  2026-10-01  FEE  -0.13  REG fee for proceed of $6003.03 on 2026-10-01 by PA3XGD47JF2P
+  2026-10-01  FEE  -0.01  CAT fee for proceed of 7 trades on 2026-10-01 by PA3XGD47JF2P
+Position now: QQQ   104.006950258 shares
+Position now: TQQQ  450.617228933 shares

@@ -1,0 +1,23 @@
+date,activity_type,net_amount,symbol,qty,per_share_amount,description,status
+2026-07-27,JNLC,100000,,,,,executed
+2026-07-27,FEE,-0.01,,,,CAT fee for proceed of 5 trades on 2026-07-27 by PA3XGD47JF2P,executed
+2026-08-18,FEE,-0.01,,,,CAT fee for proceed of 6 trades on 2026-08-18 by PA3XGD47JF2P,executed
+2026-08-18,FEE,-0.01,,,,TAF fee for proceed of 3.914318073 shares (3 trades) on 2026-08-18 by PA3XGD47JF2P,executed
+2026-08-18,FEE,-0.06,,,,REG fee for proceed of $2819.94 on 2026-08-18 by PA3XGD47JF2P,executed
+2026-08-25,FEE,-0.01,,,,TAF fee for proceed of 18.841315215 shares (6 trades) on 2026-08-25 by PA3XGD47JF2P,executed
+2026-08-25,FEE,-0.28,,,,REG fee for proceed of $13380.22 on 2026-08-25 by PA3XGD47JF2P,executed
+2026-08-25,FEE,-0.01,,,,CAT fee for proceed of 12 trades on 2026-08-25 by PA3XGD47JF2P,executed
+2026-08-26,FEE,-0.01,,,,CAT fee for proceed of 9 trades on 2026-08-26 by PA3XGD47JF2P,executed
+2026-08-26,FEE,-0.29,,,,REG fee for proceed of $13595.44 on 2026-08-26 by PA3XGD47JF2P,executed
+2026-08-26,FEE,-0.04,,,,TAF fee for proceed of 193.603701067 shares (6 trades) on 2026-08-26 by PA3XGD47JF2P,executed
+2026-08-27,FEE,-0.01,,,,TAF fee for proceed of 11.24157515 shares (2 trades) on 2026-08-27 by PA3XGD47JF2P,executed
+2026-08-27,FEE,-0.01,,,,CAT fee for proceed of 9 trades on 2026-08-27 by PA3XGD47JF2P,executed
+2026-08-27,FEE,-0.17,,,,REG fee for proceed of $8056.05 on 2026-08-27 by PA3XGD47JF2P,executed
+2026-08-28,FEE,-0.01,,,,CAT fee for proceed of 5 trades on 2026-08-28 by PA3XGD47JF2P,executed
+2026-08-28,FEE,-0.01,,,,TAF fee for proceed of 14.200144649 shares (3 trades) on 2026-08-28 by PA3XGD47JF2P,executed
+2026-08-28,FEE,-0.22,,,,REG fee for proceed of $10207.1 on 2026-08-28 by PA3XGD47JF2P,executed
+2026-09-03,FEE,-0.01,,,,CAT fee for proceed of 9 trades on 2026-09-03 by PA3XGD47JF2P,executed
+2026-09-03,FEE,-0.57,,,,REG fee for proceed of $27550.92 on 2026-09-03 by PA3XGD47JF2P,executed
+2026-09-03,FEE,-0.01,,,,TAF fee for proceed of 38.752088431 shares (4 trades) on 2026-09-03 by PA3XGD47JF2P,executed
+2026-10-01,FEE,-0.13,,,,REG fee for proceed of $6003.03 on 2026-10-01 by PA3XGD47JF2P,executed
+2026-10-01,FEE,-0.01,,,,CAT fee for proceed of 7 trades on 2026-10-01 by PA3XGD47JF2P,executed
