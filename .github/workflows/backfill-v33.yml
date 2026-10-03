@@ -1,0 +1,63 @@
+# .github/workflows/backfill-v33.yml
+#
+# ONE-TIME, READ-ONLY pull of the v3.3 paper account's history from Alpaca, back to
+# the original $100,000 funding. GET requests only -- it cannot place or cancel orders.
+# Uses the same v3.3 paper keys as the stage/submit workflows. Output is saved as a
+# run artifact and committed to backfill/ as a permanent record.
+name: Backfill v3.3 history (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Pull from (YYYY-MM-DD) -- any date a few days before the account was funded"
+        required: true
+        default: "2026-07-20"
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      START_DATE:          ${{ inputs.start_date }}
+      APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID_V33 }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY_V33 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pull account history (read-only)
+        run: python backfill_v33.py
+
+      - name: Save as a downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v33-backfill
+          path: backfill/
+
+      - name: Commit the pull to the repo (permanent record)
+        run: |
+          git config user.name  "fragility-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add backfill/
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Backfill v3.3 account history from ${START_DATE}"
+          # same race-safe push as the stage jobs, in case the daily chain pushes mid-run
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase origin main && git push origin main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            sleep $(( (RANDOM % 7) + 3 ))
+          done
+          echo "ERROR: could not push after 5 attempts (data is still in the artifact)"
+          exit 1
