@@ -16,8 +16,14 @@
 name: Update v3.3 ledger
 
 on:
+  # PRIMARY trigger: cron-job.org POSTs a repository_dispatch at 20:05 America/New_York,
+  # Mon-Fri (event_type "update-ledger-v33"). GitHub's own scheduler is best-effort and
+  # dropped BOTH slots on 2026-10-05 during an Actions incident, so it stays only as a
+  # backup. Duplicate runs are harmless: the script finds nothing left to do.
+  repository_dispatch:
+    types: [update-ledger-v33]   # dispatches bypass the 8pm gate, like manual runs
   schedule:
-    - cron: "5 0,1 * * 2-6"     # Tue-Sat UTC = Mon-Fri evenings ET
+    - cron: "5 0,1 * * 2-6"     # BACKUP. Tue-Sat UTC = Mon-Fri evenings ET
   workflow_dispatch:             # manual runs ignore the 8pm gate
 
 permissions:
