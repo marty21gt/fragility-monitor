@@ -3,10 +3,12 @@
 # Nightly update of ledger/v33_paper_trading.xlsx (v3.3 Alpaca paper track).
 #
 # Runs at 8:05pm ET on trading days, well after the 6:45pm pipeline has committed
-# data.json / daily_vt.json / emergency.json. GitHub's cron is UTC-only and ignores
-# daylight saving, so two slots are scheduled: 00:05 UTC (8:05pm EDT) and 01:05 UTC
-# (8:05pm EST). The script skips a scheduled run that lands before 8pm ET, and the
-# later slot finds nothing left to do. A missed night catches up on the next run.
+# data.json / daily_vt.json / emergency.json. Triggered by cron-job.org (repository
+# dispatch), which handles daylight saving itself. A missed night catches up on the
+# next run, so no backup trigger is needed.
+#
+# GitHub's own `schedule:` was removed (2026-10-07): it ran 4-5 hours late (12:56am /
+# 1:26am ET), where the script's 8pm gate made it a no-op. It was noise, not a backup.
 #
 # Read-only against Alpaca (GET only, paper endpoint). The run turns red if the
 # ledger does not reconcile to Alpaca, so GitHub emails you.
@@ -16,14 +18,10 @@
 name: Update v3.3 ledger
 
 on:
-  # PRIMARY trigger: cron-job.org POSTs a repository_dispatch at 20:05 America/New_York,
-  # Mon-Fri (event_type "update-ledger-v33"). GitHub's own scheduler is best-effort and
-  # dropped BOTH slots on 2026-10-05 during an Actions incident, so it stays only as a
-  # backup. Duplicate runs are harmless: the script finds nothing left to do.
+  # cron-job.org POSTs a repository_dispatch at 20:05 America/New_York, Mon-Fri
+  # (event_type "update-ledger-v33"). Dispatches bypass the 8pm gate, like manual runs.
   repository_dispatch:
-    types: [update-ledger-v33]   # dispatches bypass the 8pm gate, like manual runs
-  schedule:
-    - cron: "5 0,1 * * 2-6"     # BACKUP. Tue-Sat UTC = Mon-Fri evenings ET
+    types: [update-ledger-v33]
   workflow_dispatch:             # manual runs ignore the 8pm gate
 
 permissions:
