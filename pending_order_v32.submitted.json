@@ -1,90 +1,90 @@
 {
-  "staged_at_utc": "2026-10-14T22:47:32.178931Z",
-  "data_date": "2026-10-14",
+  "staged_at_utc": "2026-10-19T22:48:05.428736Z",
+  "data_date": "2026-10-19",
   "vehicle": "TQQQ",
-  "target_exposure": 1.4635,
+  "target_exposure": 1.5849,
   "target_weights": {
-    "QQQ": 0.7683,
-    "TQQQ": 0.2317,
+    "QQQ": 0.7075,
+    "TQQQ": 0.2925,
     "SGOV": 0.0
   },
-  "equity_at_stage": 106296.72,
+  "equity_at_stage": 104932.96,
   "positions_at_stage": {
-    "QQQ": 74070.09,
-    "TQQQ": 32226.77
+    "QQQ": 80565.83,
+    "TQQQ": 24369.34
   },
   "orders": [
     {
-      "symbol": "TQQQ",
+      "symbol": "QQQ",
       "side": "sell",
       "action": "sell",
-      "notional": 7593.07
+      "notional": 6322.31
     },
     {
-      "symbol": "QQQ",
+      "symbol": "TQQQ",
       "side": "buy",
       "action": "buy",
-      "notional": 7592.93
+      "notional": 6320.09
     }
   ],
-  "submitted_at_utc": "2026-10-15T14:00:33Z",
+  "submitted_at_utc": "2026-10-20T14:00:39Z",
   "recomputed_orders": [
     {
-      "symbol": "TQQQ",
+      "symbol": "QQQ",
       "side": "sell",
       "action": "sell",
-      "notional": 7005.98
+      "notional": 6469.24
     },
     {
-      "symbol": "QQQ",
+      "symbol": "TQQQ",
       "side": "buy",
       "action": "buy",
-      "notional": 7007.89
+      "notional": 6467.56
     }
   ],
   "fills": [
     {
-      "run_utc": "2026-10-15T14:00:33Z",
-      "data_date": "2026-10-14",
-      "target_exposure": 1.4635,
-      "symbol": "TQQQ",
+      "run_utc": "2026-10-20T14:00:39Z",
+      "data_date": "2026-10-19",
+      "target_exposure": 1.5849,
+      "symbol": "QQQ",
       "side": "sell",
       "action": "sell",
-      "notional_requested": 7005.98,
-      "order_id": "3c9769a3-e0bb-495a-a580-0f8cffaa3801",
+      "notional_requested": 6469.24,
+      "order_id": "8b069bda-2295-45b6-b5db-3fab81d811f1",
       "status": "filled",
-      "filled_qty": 99.251772044,
-      "filled_avg_price": 70.587858,
-      "filled_notional": 7005.97,
-      "arrival_bid": 70.56,
-      "arrival_ask": 70.58,
-      "arrival_mid": 70.57,
-      "slippage_bps": -2.53,
-      "prior_close": 74.14,
-      "timing_bps": 479.11,
+      "filled_qty": 9.039991616,
+      "filled_avg_price": 715.623451,
+      "filled_notional": 6469.23,
+      "arrival_bid": 715.7,
+      "arrival_ask": 715.94,
+      "arrival_mid": 715.82,
+      "slippage_bps": 2.75,
+      "prior_close": 718.31,
+      "timing_bps": 37.4,
       "minutes_to_close": 359
     },
     {
-      "run_utc": "2026-10-15T14:00:33Z",
-      "data_date": "2026-10-14",
-      "target_exposure": 1.4635,
-      "symbol": "QQQ",
+      "run_utc": "2026-10-20T14:00:39Z",
+      "data_date": "2026-10-19",
+      "target_exposure": 1.5849,
+      "symbol": "TQQQ",
       "side": "buy",
       "action": "buy",
-      "notional_requested": 7007.89,
-      "order_id": "6f113031-5254-4401-9b0a-529279648746",
+      "notional_requested": 6467.56,
+      "order_id": "c0177577-4b1e-4f32-b183-f444af6fec1a",
       "status": "filled",
-      "filled_qty": 9.764208385,
-      "filled_avg_price": 717.711024,
-      "filled_notional": 7007.88,
-      "arrival_bid": 717.0,
-      "arrival_ask": 717.58,
-      "arrival_mid": 717.29,
-      "slippage_bps": 5.87,
-      "prior_close": 728.985,
-      "timing_bps": -154.65,
+      "filled_qty": 92.59198282,
+      "filled_avg_price": 69.85,
+      "filled_notional": 6467.55,
+      "arrival_bid": 69.82,
+      "arrival_ask": 69.84,
+      "arrival_mid": 69.83,
+      "slippage_bps": 2.86,
+      "prior_close": 70.65,
+      "timing_bps": -113.23,
       "minutes_to_close": 359
     }
   ],
-  "exposure_after": 1.4638
+  "exposure_after": 1.5848
 }
