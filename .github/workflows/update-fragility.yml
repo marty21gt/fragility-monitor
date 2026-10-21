@@ -27,6 +27,14 @@ jobs:
       - name: Get the repository files
         uses: actions/checkout@v4
 
+      - name: Restore the FRED last-good copy (used only if FRED is down)
+        uses: actions/cache@v4
+        with:
+          path: .fred_cache
+          key: fred-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            fred-
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
